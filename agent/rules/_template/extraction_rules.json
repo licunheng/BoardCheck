@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "description": "<描述字段抽取规则>",
+
+  "extraction_priority": "regex_first_llm_fallback",
+
+  "field_extractors": {
+    "sn": {
+      "regex": "<正则>",
+      "context_anchor": "<日志上下文锚点>",
+      "post_process": ["trim", "upper"],
+      "must_be_present": true,
+      "notes": ""
+    },
+    "mac": {
+      "regex": "<正则>",
+      "context_anchor": "<日志上下文锚点>",
+      "post_process": ["trim", "upper"],
+      "must_be_present": true,
+      "notes": ""
+    },
+    "iccid": {
+      "regex": "<正则>",
+      "context_anchor": "<日志上下文锚点>",
+      "post_process": ["trim", "upper"],
+      "must_be_present": false,
+      "notes": ""
+    },
+    "trace_code": {
+      "regex": "<正则>",
+      "context_anchor": "<日志上下文锚点>",
+      "post_process": ["trim", "upper"],
+      "must_be_present": true,
+      "notes": ""
+    }
+  },
+
+  "session_binding": {
+    "description": "如何将同一设备的多个关键行绑定为一条记录",
+    "method": "temporal_proximity",
+    "window_seconds": 300,
+    "tie_breaker": "trace_code_response_time"
+  },
+
+  "cross_field_validation": {},
+
+  "llm_fallback": {
+    "enabled": true,
+    "trigger_when_regex_fails": true,
+    "max_lines_per_call": 500,
+    "prompt_section": "extraction"
+  }
+}

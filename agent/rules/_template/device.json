@@ -1,0 +1,49 @@
+{
+  "device_code": "<DEVICE_CODE>",
+  "display_name": "<DEVICE_NAME>",
+  "is_4g": false,
+  "version": "1.0.0",
+  "description": "<描述该设备的特征>",
+
+  "platform_csv_columns": {
+    "sn": "<平台 CSV 中 SN 的列名>",
+    "trace_code": "<平台 CSV 中追溯码的列名>",
+    "mac": "<平台 CSV 中 MAC 的列名>",
+    "iccid": "<平台 CSV 中 ICCID 的列名(仅 4G 设备需要)>"
+  },
+
+  "field_definitions": {
+    "sn": {
+      "description": "设备 SN 描述",
+      "pattern_in_raw": "<SN 的正则模式>",
+      "anchor_in_text_log": "<日志中的锚点正则>",
+      "example": "<示例值>"
+    },
+    "mac": {
+      "description": "MAC 地址描述",
+      "pattern_in_raw": "<正则>",
+      "anchor_in_text_log": "<日志锚点>",
+      "example": "<示例>"
+    },
+    "iccid": {
+      "description": "ICCID 描述(若 is_4g=false 可留空)",
+      "pattern_in_raw": "<正则>",
+      "anchor_in_text_log": "<日志锚点>",
+      "example": "<示例>"
+    },
+    "trace_code": {
+      "description": "追溯码描述",
+      "pattern_in_raw": "<正则>",
+      "anchor_in_text_log": "<日志锚点>",
+      "example": "<示例>"
+    }
+  },
+
+  "field_constraints": {
+    "mac_lives_in_trace_code": false,
+    "trace_code_last_8_chars_equal_mac": false,
+    "sn_format": "<SN 完整格式正则>",
+    "iccid_starts_with": "8986",
+    "iccid_length": [19, 20]
+  }
+}

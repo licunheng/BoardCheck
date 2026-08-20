@@ -1,0 +1,39 @@
+{
+  "version": "1.0.0",
+  "description": "A02SG 文本日志行级过滤规则。保留 A02SG 关键行(SN 指令/收mac/4G CCID/回复追溯码);剔除流程干扰行与混打日志中其他产品段。",
+
+  "keep_patterns": [
+    "568121440200",
+    "收mac:",
+    "4G\\s*CCID",
+    "回复追溯码"
+  ],
+
+  "drop_patterns": [
+    "收\\s*:id:",
+    "收\\s*:mac:",
+    "收\\s*:ICCID",
+    "发:\\s*trace code",
+    "收\\s*:trace code",
+    "trace code:",
+    "F16G_V",
+    "Ret trace code",
+    "收原始数据",
+    "success",
+    "ROOMTEMP",
+    "4g csq",
+    "over",
+    "板检用时",
+    "Excel导出成功",
+    "上传SN成功",
+    "上传板检记录成功",
+    "板检启动指令",
+    "收到授权",
+    "转发授权",
+    "发送授权请求",
+    "追溯码成功写入"
+  ],
+
+  "lines_preserved_intact": true,
+  "trim_whitespace": true
+}

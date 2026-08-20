@@ -1,0 +1,52 @@
+{
+  "device_code": "F16G",
+  "display_name": "F16G 4G 板检数据",
+  "is_4g": true,
+  "version": "1.0.0",
+  "description": "F16G 是 4G 模块产品。板检日志为串口交互日志（多串口并行：COM77/COM79 等），SN 由日志 id 字段去掉尾部 46 得到（32 位 hex），MAC 为 14 位 hex（前 12 位 = 追溯码后 12 位），ICCID 以 8986 开头 20 位数字，追溯码 22 位字母数字（权威形态为「发: trace code:」）。平台原生 .xls，表头可能漂移（同设备不同日期 SN 列名不同：260623 用 A系列uuid，260624 用 设备编号）。",
+  "platform_csv_columns": {
+    "sn": "写入SN",
+    "trace_code": "追溯码",
+    "mac": "蓝牙mac",
+    "iccid": "4G信息"
+  },
+  "field_definitions": {
+    "sn": {
+      "description": "设备 SN：32 位十六进制，日志字段名为 id，日志原始值为 平台SN + 尾码46（如 569C89881970FAA43F982FF0F6DCF90846）",
+      "pattern_in_raw": "收\\s*:id:([0-9A-Fa-f]{32})(?:46)?",
+      "anchor_in_text_log": "收\\s*:id:([0-9A-Fa-f]{32})(?:46)?",
+      "example": "569C89881970FAA43F982FF0F6DCF908"
+    },
+    "mac": {
+      "description": "MAC 地址：14 位十六进制，前 12 位 = 追溯码后 12 位（派生关系实测）；日志形如 收 :mac:701988899C568C",
+      "pattern_in_raw": "收\\s*:mac:([0-9A-Fa-f]{14})",
+      "anchor_in_text_log": "收\\s*:mac:([0-9A-Fa-f]{14})",
+      "example": "701988899C568C"
+    },
+    "iccid": {
+      "description": "4G SIM 卡 ICCID：20 位数字，以 8986 开头；日志支持裸值行(收 :8986...)或带标签行(收 :ICCID:8986...)",
+      "pattern_in_raw": "(?<![0-9])(?:[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?\\s*)?(8986[0-9]{15,16})(?![0-9])",
+      "anchor_in_text_log": "(?<![0-9])(?:[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?\\s*)?(8986[0-9]{15,16})(?![0-9])",
+      "example": "89860468152590219063"
+    },
+    "trace_code": {
+      "description": "追溯码：22 位字母数字（形如 F176XYXI6N + 12 位 hex），权威形态为「发: trace code:」，同码同串口只保留该形态锚点",
+      "pattern_in_raw": "trace\\s*code:([A-Za-z0-9]{10,40})(?![A-Za-z0-9])",
+      "anchor_in_text_log": "trace\\s*code:([A-Za-z0-9]{10,40})(?![A-Za-z0-9])",
+      "example": "F176XYXI6N701988899C56"
+    }
+  },
+  "field_constraints": {
+    "mac_lives_in_trace_code": false,
+    "mac_derived_from_trace": true,
+    "mac_trace_suffix_len": 12,
+    "trace_code_last_8_chars_equal_mac": false,
+    "sn_format": "^[0-9A-Fa-f]{32}$",
+    "sn_strip_suffix": "46",
+    "iccid_starts_with": "8986",
+    "iccid_length": [
+      19,
+      20
+    ]
+  }
+}

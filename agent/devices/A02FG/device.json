@@ -1,0 +1,52 @@
+{
+  "device_code": "A02FG",
+  "display_name": "A02FG 4G 网关",
+  "is_4g": true,
+  "version": "1.0.0",
+  "description": "A02FG 是 4G 网关产品。板检日志格式为串口交互日志,SN/MAC/ICCID/追溯码 分别通过不同行模式呈现。",
+
+  "platform_csv_columns": {
+    "sn": "A系列uuid",
+    "trace_code": "追溯码",
+    "mac": "蓝牙mac",
+    "iccid": "4G信息"
+  },
+
+  "platform_csv_notes": "平台记录里的 'A系列uuid' 列实际上是软件内部生成的 UUID,并非真实 SN(真实 SN 是以 'FA0000014000012402608' 开头的 32 位十六进制)。这是已知 Bug,需要从原始日志中提取真实 SN 进行替换。",
+
+  "field_definitions": {
+    "sn": {
+      "description": "设备 SN (32 位十六进制,以 FA0000014000012402608 开头,后跟日期+计数器)",
+      "pattern_in_raw": "FA0000014000012402608[0-9A-F]{14}",
+      "anchor_in_text_log": "COM[0-9]+:发:568121440200(FA0000014000012402608[0-9A-F]+)",
+      "example": "FA000001400001240260805000100001"
+    },
+    "mac": {
+      "description": "蓝牙 MAC 地址 (12 位十六进制)",
+      "pattern_in_raw": "0001[0-9A-F]{8}",
+      "anchor_in_text_log": "COM[0-9]+:收mac:([0-9A-F]{12})",
+      "example": "000199292D10"
+    },
+    "iccid": {
+      "description": "4G SIM 卡 ICCID (以 8986 开头,共 19-20 位)",
+      "pattern_in_raw": "89[0-9A-F]{17,20}",
+      "anchor_in_text_log": "COM[0-9]+:4G CCID:([0-9A-F]{19,20})",
+      "note": "日志中写作 '4G CCID' (CCID 是常见拼写错误,实际是 ICCID)",
+      "example": "898604A01025D0151635"
+    },
+    "trace_code": {
+      "description": "追溯码 (23 位,以 F070XYXI8 开头,后 8 位等于 MAC 后 8 位)",
+      "pattern_in_raw": "F070XYXI8[0-9A-F]{14}",
+      "anchor_in_text_log": "COM[0-9]+:回复追溯码:(F070XYXI8[0-9A-F]+)",
+      "example": "F070XYXI85000199292D10"
+    }
+  },
+
+  "field_constraints": {
+    "mac_lives_in_trace_code": true,
+    "trace_code_last_8_chars_equal_mac": true,
+    "sn_format": "FA0000014000012402608[0-9A-F]{14}",
+    "iccid_starts_with": "8986",
+    "iccid_length": [19, 20]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "version": "1.0.0",
+  "description": "F16G 文本日志行级过滤规则。保留含 trace code、id、mac、ICCID 及裸号行；剔除流程提示、原始数据与数值干扰行。",
+  "keep_patterns": [
+    "收\\s*:\\s*[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?",
+    "收\\s*:\\s*trace code:",
+    "收\\s*:\\s*id:",
+    "发\\s*:\\s*trace code:",
+    "trace code:",
+    "id:",
+    "[Mm][Aa][Cc]",
+    "收\\s*:\\s*[0-9]{19,20}"
+  ],
+  "drop_patterns": [
+    "Ret trace code",
+    "收原始数据",
+    "success",
+    "ROOMTEMP",
+    "4g csq",
+    "over",
+    "板检用时",
+    "Excel导出成功",
+    "上传SN成功",
+    "上传板检记录成功",
+    "板检启动指令",
+    "收到授权",
+    "转发授权",
+    "发送授权请求",
+    "追溯码成功写入"
+  ],
+  "field_anchors": {
+    "sn": [
+      "收\\s*:id:([0-9A-Fa-f]{32})(?:46)?"
+    ],
+    "mac": [
+      "收\\s*:mac:([0-9A-Fa-f]{14})"
+    ],
+    "iccid": [
+      "(?<![0-9])(?:[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?\\s*)?(8986[0-9]{15,16})(?![0-9])"
+    ],
+    "trace_code": [
+      "trace\\s*code:([A-Za-z0-9]{10,40})(?![A-Za-z0-9])"
+    ]
+  },
+  "lines_preserved_intact": true,
+  "trim_whitespace": true
+}

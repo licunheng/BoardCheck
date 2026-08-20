@@ -1,0 +1,76 @@
+{
+  "version": "1.0.0",
+  "description": "A02FG 字段抽取规则(正则优先级最高,LLM 作为兜底)。",
+
+  "extraction_priority": "regex_first_llm_fallback",
+
+  "field_extractors": {
+    "sn": {
+      "regex": "FA0000014000012402608[0-9A-F]{11}",
+      "context_anchor": "COM\\d+:发:568121440200(FA0000014000012402608[0-9A-F]{11})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "SN 必须从发命令行(':发:')抽取,不能从收数据行抽取"
+    },
+    "mac": {
+      "regex": "(?<![0-9A-F])(0001[0-9A-F]{8})(?![0-9A-F])",
+      "context_anchor": "COM\\d+:收mac:([0-9A-F]{12})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "MAC 从 '收mac:' 行抽取,直接抽取 12 位 hex"
+    },
+    "iccid": {
+      "regex": "(8986[0-9A-F]{15,18})",
+      "context_anchor": "COM\\d+:4G\\s+CCID:([0-9A-F]{19,20})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": false,
+      "notes": "ICCID 仅 4G 设备必须;日志中写作 '4G CCID' (注意拼写)"
+    },
+    "trace_code": {
+      "regex": "F070XYXI8[0-9A-F]{13}",
+      "context_anchor": "COM\\d+:回复追溯码:(F070XYXI8[0-9A-F]+)",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "追溯码形如 F070XYXI8 + 13 位 hex,共 22 位;后 8 位等于 MAC 后 8 位"
+    }
+  },
+
+  "session_binding": {
+    "description": "将同一个设备测试循环的 4 个关键行(sn/mac/iccid/trace_code)绑定到一条记录",
+    "method": "temporal_proximity",
+    "window_seconds": 300,
+    "tie_breaker": "trace_code_response_time"
+  },
+
+  "cross_field_validation": {
+    "trace_code_last_8_in_mac": true,
+    "iccid_starts_with_8986": true
+  },
+
+  "llm_fallback": {
+    "enabled": true,
+    "trigger_when_regex_fails": true,
+    "max_lines_per_call": 500,
+    "prompt_section": "extraction"
+  },
+
+  "llm_verification": {
+    "enabled": true,
+    "independent_extraction": true,
+    "comparison_review": true,
+    "chunk_lines": 200,
+    "max_review_records": 100
+  }
+}

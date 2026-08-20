@@ -1,0 +1,87 @@
+{
+  "version": "1.0.0",
+  "description": "A02SG 字段抽取规则(正则优先级最高,LLM 作为兜底)。与 A02FG/A02EG 同族:发:568121440200+SN、收mac:(12位)、4G CCID:(20位)、回复追溯码:F068XYXI8F开头(22位)。",
+
+  "extraction_priority": "regex_first_llm_fallback",
+
+  "field_extractors": {
+    "sn": {
+      "regex": "发:568121440200([0-9A-Fa-f]{32})",
+      "context_anchor": "发:568121440200([0-9A-Fa-f]{32})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "SN 来自 '发:568121440200' 指令行,取 32 位 hex;尾码/授权数据不捕获。以 FA000001400001 开头。"
+    },
+    "mac": {
+      "regex": "收mac:([0-9A-Fa-f]{12})",
+      "context_anchor": "收mac:([0-9A-Fa-f]{12})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "MAC 12 位 hex,来自 '收mac:' 行(无空格,与 F16G 的 '收 :mac:' 14 位区分)。= 追溯码后 12 位(派生关系实测 100/100)。"
+    },
+    "iccid": {
+      "regex": "4G\\s*CCID[:：]?\\s*([0-9A-Fa-f]{19,20})",
+      "context_anchor": "4G\\s*CCID[:：]?\\s*([0-9A-Fa-f]{19,20})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "sanitize_duplicates": true,
+      "notes": "ICCID 20 位数字以 8986 开头,来自 '4G CCID:' 行(注意拼写与 F16G 的 '收 :ICCID:' 不同)。"
+    },
+    "trace_code": {
+      "regex": "回复追溯码[:：]\\s*(F068XYXI8F[0-9A-Z]{12})",
+      "context_anchor": "回复追溯码[:：]\\s*(F068XYXI8F[0-9A-Z]{12})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "authoritative_forms": [
+        "回复追溯码"
+      ],
+      "notes": "追溯码 22 位以 F068XYXI8F 开头,来自 '回复追溯码:' 行(平台真值)。日志中另有裸 '追溯码:' 形态(板检中段),以回复形态为权威,避免一设备拆两条。"
+    }
+  },
+
+  "session_binding": {
+    "description": "将同一台 A02SG 设备测试循环的关键行绑定到一条记录。同串口测试是串行的,回复追溯码前 120 秒内必有其最后一次重试循环的 SN/MAC/ICCID。",
+    "method": "temporal_proximity",
+    "window_seconds": 120,
+    "tie_breaker": "trace_code_response_time"
+  },
+
+  "field_anchors": {
+    "sn": [
+      "发:568121440200([0-9A-Fa-f]{32})"
+    ],
+    "mac": [
+      "收mac:([0-9A-Fa-f]{12})"
+    ],
+    "iccid": [
+      "4G\\s*CCID[:：]?\\s*([0-9A-Fa-f]{19,20})"
+    ],
+    "trace_code": [
+      "回复追溯码[:：]\\s*(F068XYXI8F[0-9A-Z]{12})"
+    ]
+  },
+
+  "llm_fallback": {
+    "enabled": true,
+    "trigger_when_regex_fails": true,
+    "max_lines_per_call": 500,
+    "prompt_section": "extraction"
+  },
+
+  "llm_verification": {
+    "enabled": false,
+    "note": "复核层默认不开(推理模型会空转, 详见 docs/debugging/05);确定性校验是基线。"
+  }
+}

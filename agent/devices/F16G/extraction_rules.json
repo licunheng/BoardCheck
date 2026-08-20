@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "description": "F16G 字段抽取规则(正则优先级最高,LLM 作为兜底)。",
+  "extraction_priority": "regex_first_llm_fallback",
+  "field_extractors": {
+    "sn": {
+      "regex": "收\\s*:id:([0-9A-Fa-f]{32})(?:46)?",
+      "context_anchor": "收\\s*:id:([0-9A-Fa-f]{32})(?:46)?",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "SN 来自'收 :id:'行，32 位 hex，剥尾码 46。锚点必须带'收 :'前缀，防止被 ICCID: 里 'ID:' 子串误命中。"
+    },
+    "mac": {
+      "regex": "收\\s*:mac:([0-9A-Fa-f]{14})",
+      "context_anchor": "收\\s*:mac:([0-9A-Fa-f]{14})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "MAC 14 位 hex，前 12 位 = 追溯码后 12 位（派生关系实测）；比对时取前12位与平台 12 位比较。"
+    },
+    "iccid": {
+      "regex": "(?<![0-9])(?:[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?\\s*)?(8986[0-9]{15,})",
+      "context_anchor": "(?<![0-9])(?:[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?\\s*)?(8986[0-9]{15,})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "sanitize_duplicates": true,
+      "notes": "ICCID 20 位数字以 8986 开头，支持裸值与带 ICCID: 标签；上位机异常时会打印 31-40 位粘连串，正则捕获完整粘连串后由 sanitize_duplicates 取最后一个完整号(实测最后一个是当前真值，第一个是脏前缀)。"
+    },
+    "trace_code": {
+      "regex": "trace\\s*code:([A-Za-z0-9]{10,40})(?![A-Za-z0-9])",
+      "context_anchor": "trace\\s*code:([A-Za-z0-9]{10,40})(?![A-Za-z0-9])",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "authoritative_forms": [
+        "发\\s*:"
+      ],
+      "notes": "追溯码权威形态'发: trace code:'，同码同串口只保留该形态锚点，避免一设备拆 3 条。"
+    }
+  },
+  "session_binding": {
+    "description": "将同一个设备测试循环的关键行(sn/mac/iccid/trace_code)绑定到一条记录，多串口并行。",
+    "method": "temporal_proximity",
+    "window_seconds": 60,
+    "tie_breaker": "trace_code_response_time"
+  },
+  "field_anchors": {
+    "sn": [
+      "收\\s*:id:([0-9A-Fa-f]{32})(?:46)?"
+    ],
+    "mac": [
+      "收\\s*:mac:([0-9A-Fa-f]{14})"
+    ],
+    "iccid": [
+      "(?<![0-9])(?:[Ii][Cc][Cc][Ii][Dd]\\s*[:：=]?\\s*)?(8986[0-9]{15,})"
+    ],
+    "trace_code": [
+      "trace\\s*code:([A-Za-z0-9]{10,40})(?![A-Za-z0-9])"
+    ]
+  },
+  "llm_fallback": {
+    "enabled": true,
+    "trigger_when_regex_fails": true,
+    "max_lines_per_call": 500,
+    "prompt_section": "extraction"
+  },
+  "llm_verification": {
+    "enabled": false,
+    "note": "复核层默认不开(推理模型会空转, 详见 docs/debugging/05);确定性校验是基线。"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "device_code": "A02SG",
+  "display_name": "A02SG 4G 网关",
+  "is_4g": true,
+  "version": "1.0.0",
+  "description": "A02SG 是 4G 网关产品。板检日志为串口交互日志,与 A02FG/A02EG 同族。A02SG 段特征行:发:568121440200+SN、收mac:(12位)、4G CCID:(20位)、回复追溯码:F068XYXI8F开头(22位)。",
+
+  "platform_csv_columns": {
+    "sn": "A系列uuid",
+    "trace_code": "追溯码",
+    "mac": "蓝牙mac",
+    "iccid": "4G信息"
+  },
+
+  "platform_csv_notes": "平台'追溯码'是 F068XYXI8F 开头 22 位真值,与日志'回复追溯码:'行一致。'蓝牙mac' = 追溯码后 12 位(派生关系实测 100/100)。'4G信息' = 日志'4G CCID:'行,以 8986 开头 20 位。'A系列uuid' 是软件内部 UUID,不是真实 SN(真实 SN 以 FA000001400001 开头 32 位,仅在板检日志'发:568121440200'行),比对层会据此报 SN 不一致,属已知平台缺陷,与 A02FG/A02EG 同类。'写入SN' 列为空。",
+
+  "field_definitions": {
+    "sn": {
+      "description": "设备真实 SN (32 位十六进制,以 FA000001400001 开头,含日期段 240260815)",
+      "pattern_in_raw": "FA000001400001[0-9A-F]{17}",
+      "anchor_in_text_log": "发:568121440200([0-9A-F]{32})",
+      "example": "FA000001400001240260815000100001"
+    },
+    "mac": {
+      "description": "蓝牙 MAC 地址 (12 位十六进制, = 追溯码后 12 位)",
+      "pattern_in_raw": "[0-9A-F]{12}",
+      "anchor_in_text_log": "收mac:([0-9A-F]{12})",
+      "example": "00018B831B06"
+    },
+    "iccid": {
+      "description": "4G SIM 卡 ICCID (20 位,以 8986 开头)",
+      "pattern_in_raw": "8986[0-9A-F]{16}",
+      "anchor_in_text_log": "4G CCID:([0-9A-F]{19,20})",
+      "note": "日志中写作 '4G CCID' (与 A02EG 同拼写,与 F16G 的 '收 :ICCID:' 区分)",
+      "example": "898604691026D0058325"
+    },
+    "trace_code": {
+      "description": "追溯码 (22 位,以 F068XYXI8F 开头,后 12 位 = MAC)",
+      "pattern_in_raw": "F068XYXI8F[0-9A-Z]{12}",
+      "anchor_in_text_log": "回复追溯码:(F068XYXI8F[0-9A-Z]{12})",
+      "example": "F068XYXI8F00018B831B06"
+    }
+  },
+
+  "field_constraints": {
+    "mac_derived_from_trace": true,
+    "mac_trace_suffix_len": 12,
+    "iccid_starts_with": "8986",
+    "iccid_length": [19, 20],
+    "sn_format": "^[0-9A-Fa-f]{32}$"
+  }
+}

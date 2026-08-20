@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "description": "<描述该设备的过滤规则>",
+
+  "keep_patterns": [
+    "<保留行的正则1>",
+    "<保留行的正则2>"
+  ],
+
+  "drop_patterns": [
+    "<剔除行的正则1>",
+    "<剔除行的正则2>"
+  ],
+
+  "field_anchors": {
+    "sn": ["<锚点正则>"],
+    "mac": ["<锚点正则>"],
+    "iccid": ["<锚点正则>"],
+    "trace_code": ["<锚点正则>"]
+  },
+
+  "lines_preserved_intact": true,
+  "trim_whitespace": true
+}

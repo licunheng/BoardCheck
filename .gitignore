@@ -1,0 +1,39 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# === 构建产物 ===
+build/
+dist/
+*.exe
+*.spec.bak
+
+# === 运行时生成的数据目录(不纳入版本管理) ===
+output/
+outputs/
+uploads/
+output_e2e/
+output_exe/
+
+# === 生产数据 / 过程文件(绝不进 git) ===
+A02FG/
+Device_doc/
+output_config/
+00readme/
+trace/
+sample_data/
+
+# === Claude Code 项目目录 ===
+.claude/
+
+# === 系统 ===
+.DS_Store
+Thumbs.db
+*.log
+
+# A02FG 旧样本(含真实数据)
+agent/devices/A02FG/samples/
