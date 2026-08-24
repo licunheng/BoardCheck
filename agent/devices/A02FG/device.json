@@ -16,9 +16,9 @@
 
   "field_definitions": {
     "sn": {
-      "description": "设备 SN (32 位十六进制,以 FA0000014000012402608 开头,后跟日期+计数器)",
-      "pattern_in_raw": "FA0000014000012402608[0-9A-F]{14}",
-      "anchor_in_text_log": "COM[0-9]+:发:568121440200(FA0000014000012402608[0-9A-F]+)",
+      "description": "设备 SN (32 位十六进制,以 FA000001400001 开头,后跟 6 位日期段(随批次:2402606/2402607/2402608 等)+12 位计数)",
+      "pattern_in_raw": "FA000001400001[0-9A-F]{18}",
+      "anchor_in_text_log": "COM[0-9]+:发:568121440200(FA000001400001[0-9A-F]{18})",
       "example": "FA000001400001240260805000100001"
     },
     "mac": {
@@ -35,9 +35,9 @@
       "example": "898604A01025D0151635"
     },
     "trace_code": {
-      "description": "追溯码 (23 位,以 F070XYXI8 开头,后 8 位等于 MAC 后 8 位)",
-      "pattern_in_raw": "F070XYXI8[0-9A-F]{14}",
-      "anchor_in_text_log": "COM[0-9]+:回复追溯码:(F070XYXI8[0-9A-F]+)",
+      "description": "追溯码 (22 位,以 F070 家族前缀开头,批次前缀多变:F070XYXI5J/5I/6I/6M/7D/84/85/F070ZHHI7K 等,后 12 位含 MAC 段)",
+      "pattern_in_raw": "F070[0-9A-Z]{6}[0-9A-Z]{12}",
+      "anchor_in_text_log": "COM[0-9]+:回复追溯码:(F070[0-9A-Z]{6}[0-9A-Z]{12})",
       "example": "F070XYXI85000199292D10"
     }
   },
@@ -45,7 +45,9 @@
   "field_constraints": {
     "mac_lives_in_trace_code": true,
     "trace_code_last_8_chars_equal_mac": true,
-    "sn_format": "FA0000014000012402608[0-9A-F]{14}",
+    "mac_derived_from_trace": true,
+    "mac_trace_suffix_len": 12,
+    "sn_format": "FA000001400001[0-9A-F]{18}",
     "iccid_starts_with": "8986",
     "iccid_length": [19, 20]
   }

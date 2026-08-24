@@ -51,8 +51,9 @@
   "session_binding": {
     "description": "将同一个设备测试循环的关键行(sn/mac/iccid/trace_code)绑定到一条记录，多串口并行。",
     "method": "temporal_proximity",
-    "window_seconds": 60,
-    "tie_breaker": "trace_code_response_time"
+    "window_seconds": 300,
+    "tie_breaker": "trace_code_response_time",
+    "sn_direction": "after"
   },
   "field_anchors": {
     "sn": [

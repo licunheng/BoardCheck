@@ -118,10 +118,19 @@ def extract_from_text_log(
         )
 
         # 绑定 SN/ICCID:同串口 + 窗口内时间最近
-        # SN 强制 after-优先(失败循环常把上一台设备的旧 SN 绑过来);
-        # ICCID 用「就近」兜底——设备常在发 trace 前先读卡,after-优先会把 ICCID 推到下一台。
+        # 绑定方向由设备配置 session_binding.<field>_direction 决定:
+        #   after  :字段在 trace 之后读回 → 优先锚点后(防偷上一台旧值)
+        #   before :字段在 trace 之前出现 → 优先锚点前(防偷下一台新值)
+        #   nearest:不区分前后(就近)
+        # SN/ICCID 各自可配(sn_direction / iccid_direction);默认 sn=after(旧行为), iccid=nearest。
+        sb = rules.extraction_rules.get("session_binding", {})
+        sn_direction = sb.get("sn_direction", "after")
+        iccid_direction = sb.get("iccid_direction", "nearest")
         for kind in ("sn", "iccid"):
-            if kind == "sn":
+            direction = sn_direction if kind == "sn" else iccid_direction
+            if direction == "before":
+                best = _nearest_before_same_port(parsed, anchor, kind, window)
+            elif direction == "after":
                 best = _nearest_after_same_port(parsed, anchor, kind, window)
             else:
                 best = _nearest_same_port(parsed, anchor, kind, window)
@@ -258,29 +267,27 @@ def _dedupe_repeated(s: str, line: Optional[str] = None) -> str:
     实测「最后一个完整号」才是当前设备真值(平台/旧逻辑取的是第一个=脏前缀),
     因此扫描整行中所有完整的 19-20 位 8986 号并返回最后一个。
 
-    line 存在时优先扫整行(正则可能只捕获到第一个号或被 '?' 截断的前缀)。
-    非 8986 开头的字段(无候选)退化为原逻辑:发现重复前缀就截断。
+    ICCID 可能是 hex(如 A02SG 的 '898604781025D0538986' 含 'D')——收集时按
+    [0-9A-Fa-f] 而非 isdigit(),避免 hex 号内部的 '8986' 子串被误判为「重复开头」。
+    扫描规则:从每个 '8986' 位置收集其后连续 hex,长度 >= 19 即视为一个完整号候选
+    (取前 20 位),返回最后一个;找不到任何完整号时原样返回 s,不再按「重复前缀」截断
+    (旧退化逻辑会把 hex 号内部 '...D0538986' 的 '8986' 当成重复标记,截断成 16 位)。
     """
     src = line if line else s
     marker = "8986"
     candidates: List[str] = []
     i = src.find(marker)
     while i != -1:
-        # 收集 '8986' 后连续数字的完整号长度(4 位前缀 + 数字位数)
+        # 收集 '8986' 后连续 hex 字符的完整号长度(4 位前缀 + hex 位数)
         j = i + 4
-        while j < len(src) and src[j].isdigit():
+        while j < len(src) and src[j] in "0123456789ABCDEFabcdef":
             j += 1
         total_len = j - i
-        if total_len in (19, 20):
-            candidates.append(src[i:j])
+        if total_len >= 19:
+            candidates.append(src[i:i + 20])
         i = src.find(marker, i + 1)
     if candidates:
         return candidates[-1]
-    # 退化逻辑(非 8986 数字串的字段)
-    first = s.find(marker)
-    second = s.find(marker, first + 1)
-    if second != -1:
-        return s[first:second]
     return s
 
 
@@ -348,6 +355,37 @@ def _nearest_after_same_port(
     有 after 候选时取最近的 after;无 after 时回退到窗口内最近的(含 before)。
     """
     best = _nearest_in_window(parsed, anchor, kind, window_seconds, after_only=True)
+    if best is not None:
+        return best
+    return _nearest_in_window(parsed, anchor, kind, window_seconds)
+
+
+def _nearest_before_same_port(
+    parsed: List[_KeyLine],
+    anchor: _KeyLine,
+    kind: str,
+    window_seconds: int,
+) -> Optional[_KeyLine]:
+    """返回与锚点「同串口 + 窗口内 + 锚点之前时间最近」的一条 kind 关键行(无则 None)。
+
+    A02SG/A02EG/A02FG 时序与 F16G 相反:SN 是板检开始发的「发:568121440200」指令
+    (含 SN),在回复追溯码(锚点)之前。after-优先会跳过本设备 SN(锚点前)而选到
+    下一台设备的 SN(锚点后)→ 误判。before-优先取锚点前最近的 SN(本设备真值),
+    失败循环的下一台设备 SN 恰在锚点之后不会被偷。
+    """
+    best: Optional[_KeyLine] = None
+    best_d: Optional[int] = None
+    for k in parsed:
+        if k.kind != kind or k.com_port != anchor.com_port:
+            continue
+        if not _within_window(anchor.timestamp, k.timestamp, window_seconds):
+            continue
+        if k.timestamp > anchor.timestamp:
+            continue
+        d = _time_distance_seconds(anchor.timestamp, k.timestamp)
+        if best_d is None or d < best_d:
+            best_d = d
+            best = k
     if best is not None:
         return best
     return _nearest_in_window(parsed, anchor, kind, window_seconds)

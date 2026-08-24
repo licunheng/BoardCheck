@@ -1,19 +1,17 @@
 {
   "version": "1.0.0",
   "description": "A02FG 字段抽取规则(正则优先级最高,LLM 作为兜底)。",
-
   "extraction_priority": "regex_first_llm_fallback",
-
   "field_extractors": {
     "sn": {
-      "regex": "FA0000014000012402608[0-9A-F]{11}",
-      "context_anchor": "COM\\d+:发:568121440200(FA0000014000012402608[0-9A-F]{11})",
+      "regex": "FA000001400001[0-9A-F]{18}",
+      "context_anchor": "COM\\d+:发:568121440200(FA000001400001[0-9A-F]{18})",
       "post_process": [
         "trim",
         "upper"
       ],
       "must_be_present": true,
-      "notes": "SN 必须从发命令行(':发:')抽取,不能从收数据行抽取"
+      "notes": "SN 必须从发命令行(':发:')抽取,不能从收数据行抽取。SN 32 位 hex = FA000001400001(14) + 日期段(6 位,随生产批次变:2402606/2402607/2402608 等) + 12 位。旧 {2402608} 只认 8 月批次,6/7 月批次全部 SN=None。"
     },
     "mac": {
       "regex": "(?<![0-9A-F])(0001[0-9A-F]{8})(?![0-9A-F])",
@@ -36,36 +34,34 @@
       "notes": "ICCID 仅 4G 设备必须;日志中写作 '4G CCID' (注意拼写)"
     },
     "trace_code": {
-      "regex": "F070XYXI8[0-9A-F]{13}",
-      "context_anchor": "COM\\d+:回复追溯码:(F070XYXI8[0-9A-F]+)",
+      "regex": "F070[0-9A-Z]{6}[0-9A-Z]{12}",
+      "context_anchor": "COM\\d+:回复追溯码:(F070[0-9A-Z]{6}[0-9A-Z]{12})",
       "post_process": [
         "trim",
         "upper"
       ],
       "must_be_present": true,
-      "notes": "追溯码形如 F070XYXI8 + 13 位 hex,共 22 位;后 8 位等于 MAC 后 8 位"
+      "notes": "追溯码 22 位以 F070 家族前缀开头(批次前缀多变:F070XYXI5J/5I/6I/6M/7D/84/85/F070ZHHI7K 等,共 10 位前缀 + 12 位尾段)。仅匹配回复形态(回复追溯码:),裸追溯码 Z047 开头是中间码,绝不能匹配。regex 家族常量 F070 保留 + 6 位变体段 {6} + 12 位尾段。"
     }
   },
-
   "session_binding": {
     "description": "将同一个设备测试循环的 4 个关键行(sn/mac/iccid/trace_code)绑定到一条记录",
     "method": "temporal_proximity",
     "window_seconds": 300,
-    "tie_breaker": "trace_code_response_time"
+    "tie_breaker": "trace_code_response_time",
+    "sn_direction": "before",
+    "iccid_direction": "before"
   },
-
   "cross_field_validation": {
     "trace_code_last_8_in_mac": true,
     "iccid_starts_with_8986": true
   },
-
   "llm_fallback": {
     "enabled": true,
     "trigger_when_regex_fails": true,
     "max_lines_per_call": 500,
     "prompt_section": "extraction"
   },
-
   "llm_verification": {
     "enabled": true,
     "independent_extraction": true,

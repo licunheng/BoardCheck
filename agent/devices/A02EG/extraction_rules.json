@@ -1,9 +1,7 @@
 {
   "version": "1.0.0",
   "description": "A02EG 字段抽取规则(正则优先级最高,LLM 作为兜底)。与 F16G 混打日志时,仅匹配 A02EG 老格式行。",
-
   "extraction_priority": "regex_first_llm_fallback",
-
   "field_extractors": {
     "sn": {
       "regex": "发:568121440200([0-9A-Fa-f]{32})",
@@ -50,14 +48,13 @@
       "notes": "追溯码 22 位以 F069 开头,来自 '回复追溯码:' 行(平台真值)。日志中 '发: trace code:' 是 F16G 临时追溯码,不参与。"
     }
   },
-
   "session_binding": {
     "description": "将同一台 A02EG 设备测试循环的关键行绑定到一条记录。同串口测试是串行的,回复追溯码前 120 秒内必有其最后一次重试循环的 SN/MAC/ICCID。",
     "method": "temporal_proximity",
-    "window_seconds": 120,
-    "tie_breaker": "trace_code_response_time"
+    "window_seconds": 300,
+    "tie_breaker": "trace_code_response_time",
+    "sn_direction": "before"
   },
-
   "field_anchors": {
     "sn": [
       "发:568121440200([0-9A-Fa-f]{32})"
@@ -72,14 +69,12 @@
       "回复追溯码[:：]\\s*(F069[0-9A-Z]{18})"
     ]
   },
-
   "llm_fallback": {
     "enabled": true,
     "trigger_when_regex_fails": true,
     "max_lines_per_call": 500,
     "prompt_section": "extraction"
   },
-
   "llm_verification": {
     "enabled": false,
     "note": "复核层默认不开(推理模型会空转, 详见 docs/debugging/05);确定性校验是基线。"

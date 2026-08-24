@@ -1,12 +1,13 @@
 {
   "version": "1.0.0",
-  "description": "A02SG 文本日志行级过滤规则。保留 A02SG 关键行(SN 指令/收mac/4G CCID/回复追溯码);剔除流程干扰行与混打日志中其他产品段。",
+  "description": "A02SG 文本日志行级过滤规则。保留 A02SG 关键行(SN 指令/收mac/4G CCID/追溯码 含回复形态与裸形态);剔除流程干扰行与混打日志中其他产品段。",
 
   "keep_patterns": [
     "568121440200",
     "收mac:",
     "4G\\s*CCID",
-    "回复追溯码"
+    "回复追溯码",
+    "追溯码:"
   ],
 
   "drop_patterns": [

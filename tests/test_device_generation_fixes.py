@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent.core.extractor import _dedupe_repeated, _extract_field_value
-from agent.core.rule_loader import FieldExtractor
+from agent.core.rule_loader import DeviceRules, FieldExtractor
 from agent.core.verifier import _validate_platform_columns
 
 
@@ -267,6 +267,85 @@ def test_review_switch_resolution():
     assert _resolve_review_switches(None, None, None) == (None, None)
 
 
+def test_extract_text_logs_per_file_no_cross_day_binding():
+    """多文件(跨日)抽取:每个文件独立处理,SN/ICCID 不跨日错绑。
+
+    场景:
+      file1(8-13): 23:59:50 发 SN=...000100001
+      file2(8-14): 00:00:30 拿追溯码+MAC+ICCID; 00:00:10 也发了 SN=...000100002
+    修复前(merged kept_lines 拼接):23:59 和 00:00 视为 10 秒相邻,
+      SN 000100001 错绑给 file2 设备 → 1:1 冲突。
+    修复后(per-file 抽取):file2 设备只看到 file2 内的 SN(000100002)。
+    """
+    from agent.core.verifier import _extract_text_logs_per_file
+
+    rules = DeviceRules.load("A02SG")
+
+    # file1: 只有一条 SN(模拟 8-13 23:59 设备)
+    file1 = (
+        "23:59:50 000 | COM3:发:568121440200"
+        "FA000001400001240260813000100001"
+        "AABBCCDDEEFF11223344556677889900"
+        "AABBCCDDEEFF11223344556677889900"
+        "AABBCCDDEEFF11223344556677889900"
+        "AABBCCDDEEFF112233445566"
+        "00D0A\n"
+    )
+    # file2: 另一台设备完整循环(00:00 起,带 SN+MAC+追溯码+ICCID+回复追溯码)
+    file2 = (
+        "00:00:10 000 | COM3:发:568121440200"
+        "FA000001400001240260814000100002"
+        "AABBCCDDEEFF11223344556677889900"
+        "AABBCCDDEEFF11223344556677889900"
+        "AABBCCDDEEFF11223344556677889900"
+        "AABBCCDDEEFF112233445566"
+        "00D0A\n"
+        "00:00:20 000 | COM3:收mac:000100000001\n"
+        "00:00:30 000 | COM3:追溯码:F068XYXI8F000100000001\n"
+        "00:00:35 000 | COM3:4G CCID:898604691026D0058123\n"
+        "00:00:40 000 | COM3:回复追溯码:F068XYXI8F000100000001\n"
+        "00:00:50 000 | COM3:板检结果:成功\n"
+    )
+
+    tmpdir = Path(tempfile.mkdtemp())
+    try:
+        f1 = tmpdir / "file1.txt"
+        f2 = tmpdir / "file2.txt"
+        f1.write_text(file1, encoding="utf-8")
+        f2.write_text(file2, encoding="utf-8")
+
+        records, merged_lines, total_in, total_kept = _extract_text_logs_per_file(
+            [f1, f2], rules
+        )
+
+        # file2 设备的追溯码 = F068XYXI8F000100000001,期望 SN 以 814000100002 结尾
+        # (file2 的 SN 含日期段 260814;file1 的 SN 含 260813)
+        file2_recs = [r for r in records if r.trace_code == "F068XYXI8F000100000001"]
+        assert file2_recs, "file2 设备应被抽取到一条记录"
+        rec = file2_recs[0]
+        assert rec.sn and rec.sn.endswith("814000100002"), (
+            f"file2 设备 SN 应以 814000100002 结尾(同文件内的 SN,含日期 0814),"
+            f"实际为 {rec.sn};跨日错绑未修复"
+        )
+        assert rec.sn and not rec.sn.endswith("813000100001"), (
+            f"file2 设备 SN 不应是 file1 的 813000100001(跨日错绑)"
+        )
+
+        # source_line 必须为全局索引:file1 只有 1 行被保留,file2 的追溯码
+        # 应在 file1 累计 1 行后偏移,所以 source_line = file2 内行号 + 1
+        # file2 中追溯码行在原始 file2 中是第 3 行,所以 source_line = 3 + 1 = 4
+        assert rec.source_line >= 2, (
+            f"source_line 应已加累计偏移(全局索引),实际 {rec.source_line}"
+        )
+
+        # merged kept_lines 长度应等于两个文件 kept_lines 之和
+        assert len(merged_lines) == total_kept, (
+            f"merged kept_lines {len(merged_lines)} 应等于 total_kept {total_kept}"
+        )
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 if __name__ == "__main__":
     test_anchor_without_group_uses_regex_group()
     print("✓ 抽取器:锚点无捕获组时改用 regex 捕获组,不再返回 COM口/字段名")
@@ -288,4 +367,6 @@ if __name__ == "__main__":
     print("✓ ICCID 正则:能捕获完整粘连串并由后处理取真值")
     test_sn_after_anchor_preferred_over_stale_prev_device()
     print("✓ SN 绑定:优先锚点后的 id,不再偷上一台设备的旧 SN")
+    test_extract_text_logs_per_file_no_cross_day_binding()
+    print("✓ 多文件抽取:跨日 SN 不错绑(file2 设备绑对 file2 SN,非 file1)")
     print("全部通过")

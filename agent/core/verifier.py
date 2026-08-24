@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # 字段 → 平台 CSV 列名候选(按优先级降序,越靠前越可信)。
 # 用于列名映射匹配不上时的模糊匹配自动纠错。
 _FIELD_SYNONYMS: Dict[str, List[str]] = {
-    "sn": ["设备编号", "sn", "序列号", "序列碼", "serial", "写入sn", "uuid"],
+    "sn": ["设备编号", "sn", "序列号", "id","序列碼", "serial", "写入sn", "uuid"],
     "mac": ["蓝牙mac", "mac", "mac地址", "蓝牙mac地址", "blemac", "蓝牙地址"],
     "iccid": ["4g信息", "iccid", "4g卡号", "sim卡", "sim", "卡号", "iccid卡号"],
     "trace_code": ["追溯码", "tracecode", "trace", "溯源码", "追溯碼", "追溯"],
@@ -153,18 +153,31 @@ def run_verification(
         preprocessed.keep_rate * 100,
     )
 
-    # 2. 抽取字段
+    # 2. 抽取字段(文本日志按文件分别抽取,避免跨日时间窗错绑)
     _report("字段抽取…")
     logger.info("Step 2: 字段抽取")
     if preprocessed.file_type == "text_log":
-        raw_records = extract_from_text_log(preprocessed.kept_lines, rules)
+        raw_records, file_kept_lines, total_in, total_kept = _extract_text_logs_per_file(
+            raw_paths, rules
+        )
+        # 同步累计统计到 preprocessed,后续日志使用 file_kept_lines(全局索引版)
+        preprocessed.kept_lines = file_kept_lines
+        preprocessed.total_input_lines = total_in
+        preprocessed.total_kept_lines = total_kept
+        logger.info(
+            "  → 文本日志按文件独立抽取(%d 个文件,累计保留 %d 行,合并 %d 条记录)",
+            len(raw_paths),
+            total_kept,
+            len(raw_records),
+        )
         # LLM 兜底:补全正则未抽全的记录(需配置 API Key)
         if (rules.extraction_rules.get("llm_fallback", {}) or {}).get("enabled", False):
             raw_records = extract_with_llm_fallback(
-                preprocessed.kept_lines, raw_records, rules
+                file_kept_lines, raw_records, rules
             )
     elif preprocessed.file_type in ("sqlite", "csv"):
         raw_records = extract_from_records(preprocessed.kept_records, rules)
+        file_kept_lines = preprocessed.kept_lines
     else:
         raise ValueError(f"未支持的文件类型: {preprocessed.file_type}")
     logger.info("  → 抽取到 %d 条设备记录", len(raw_records))
@@ -312,6 +325,9 @@ def _preprocess_raw_files(
 
     - 文本日志: 逐文件过滤后合并 kept_lines(行号在合并后的列表中连续,供 LLM 上下文定位)
     - CSV/SQLite: 合并 kept_records
+
+    注意:本函数只用于统计与「非文本」场景的合并;文本日志的抽取请走
+    `_extract_text_logs_per_file`,那里按文件分别抽取,避免跨文件时间窗错绑。
     """
     merged_lines: List[str] = []
     merged_records: List[Dict[str, Any]] = []
@@ -335,6 +351,58 @@ def _preprocess_raw_files(
         total_input_lines=total_input,
         total_kept_lines=len(merged_lines) + len(merged_records),
     )
+
+
+def _extract_text_logs_per_file(
+    paths: List[Path], rules: DeviceRules
+) -> Tuple[List[DeviceRecord], List[str], int, int]:
+    """对每个文本日志独立预处理+抽取,避免跨文件时间窗错绑。
+
+    背景:
+      多天/多批次日志合并时,行时间戳只有 HH:MM:SS(无日期)。若直接把所有文件的
+      kept_lines 拼成一个列表,前一天的 23:59 行与第二天的 00:00 行仅相隔 1 分钟,
+      会让 SN/ICCID/MAC 跨日错绑 → 大量 1:1 冲突 + dedupe 标记 low → 报告「空白」。
+
+    修法:
+      每个文件独立走 preprocess + extract_from_text_log(同串口+时间窗只在单文件内生效),
+      再把 records 合并。同时把 source_line 加上累计行偏移,映射回全局 kept_lines,
+      让 LLM 复核(_grab_context / _conflict_context)用 source_line 索引时仍正确。
+
+    Returns:
+        records:           跨文件合并的 DeviceRecord 列表(source_line 已全局化)
+        merged_kept_lines: 跨文件拼接的 kept_lines(全局索引,供 LLM 上下文)
+        total_input:       所有文件输入总行数
+        total_kept:        所有文件保留总行数
+    """
+    all_records: List[DeviceRecord] = []
+    merged_kept_lines: List[str] = []
+    total_input = 0
+    total_kept = 0
+    line_offset = 0  # 累计的「保留行」偏移,用于把 per-file source_line 映射到全局
+
+    for path in paths:
+        pre = preprocess_raw_file(path, rules)
+        if pre.file_type != "text_log":
+            # SQLite/CSV 路径在主流程的 elif 分支处理;此处只处理文本日志
+            total_input += pre.total_input_lines
+            total_kept += pre.total_kept_lines
+            continue
+
+        recs = extract_from_text_log(pre.kept_lines, rules)
+
+        # 调整 source_line 为全局索引,与 merged_kept_lines 对齐
+        # (trace_response_time 仍保留原 HH:MM:SS;LLM 上下文查找走 source_line 索引)
+        for r in recs:
+            if r.source_line is not None:
+                r.source_line = r.source_line + line_offset
+
+        all_records.extend(recs)
+        merged_kept_lines.extend(pre.kept_lines)
+        line_offset += len(pre.kept_lines)
+        total_input += pre.total_input_lines
+        total_kept += pre.total_kept_lines
+
+    return all_records, merged_kept_lines, total_input, total_kept
 
 
 def _read_platform_csvs(paths: List[Path]) -> List[Dict[str, str]]:

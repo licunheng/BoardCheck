@@ -3,7 +3,7 @@
   "display_name": "A02SG 4G 网关",
   "is_4g": true,
   "version": "1.0.0",
-  "description": "A02SG 是 4G 网关产品。板检日志为串口交互日志,与 A02FG/A02EG 同族。A02SG 段特征行:发:568121440200+SN、收mac:(12位)、4G CCID:(20位)、回复追溯码:F068XYXI8F开头(22位)。",
+  "description": "A02SG 是 4G 网关产品。板检日志为串口交互日志,与 A02FG/A02EG 同族。A02SG 段特征行:发:568121440200+SN、收mac:(12位)、4G CCID:(20位)、追溯码:F068 家族前缀开头(22位)。",
 
   "platform_csv_columns": {
     "sn": "A系列uuid",
@@ -12,7 +12,7 @@
     "iccid": "4G信息"
   },
 
-  "platform_csv_notes": "平台'追溯码'是 F068XYXI8F 开头 22 位真值,与日志'回复追溯码:'行一致。'蓝牙mac' = 追溯码后 12 位(派生关系实测 100/100)。'4G信息' = 日志'4G CCID:'行,以 8986 开头 20 位。'A系列uuid' 是软件内部 UUID,不是真实 SN(真实 SN 以 FA000001400001 开头 32 位,仅在板检日志'发:568121440200'行),比对层会据此报 SN 不一致,属已知平台缺陷,与 A02FG/A02EG 同类。'写入SN' 列为空。",
+  "platform_csv_notes": "平台'追溯码'是 F068 家族前缀开头 22 位真值(实际批次前缀多变:F068XYXI6H/F068XYXI6I/F068XYXI8C/F068XYXI8F/F068XYXI7U/F068ZHHI7K 等),与日志'回复追溯码:'行一致。'蓝牙mac' = 追溯码后 12 位(派生关系实测 100/100)。'4G信息' = 日志'4G CCID:'行,以 8986 开头 20 位。'A系列uuid' 是软件内部 UUID,不是真实 SN(真实 SN 以 FA000001400001 开头 32 位,仅在板检日志'发:568121440200'行),比对层会据此报 SN 不一致,属已知平台缺陷,与 A02FG/A02EG 同类。'写入SN' 列为空。",
 
   "field_definitions": {
     "sn": {
@@ -35,9 +35,9 @@
       "example": "898604691026D0058325"
     },
     "trace_code": {
-      "description": "追溯码 (22 位,以 F068XYXI8F 开头,后 12 位 = MAC)",
-      "pattern_in_raw": "F068XYXI8F[0-9A-Z]{12}",
-      "anchor_in_text_log": "回复追溯码:(F068XYXI8F[0-9A-Z]{12})",
+      "description": "追溯码 (22 位,以 F068 家族前缀开头,后 12 位 = MAC)",
+      "pattern_in_raw": "F068[0-9A-Z]{6}[0-9A-Z]{12}",
+      "anchor_in_text_log": "(?:回复)?追溯码:(F068[0-9A-Z]{6}[0-9A-Z]{12})",
       "example": "F068XYXI8F00018B831B06"
     }
   },
