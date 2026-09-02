@@ -20,7 +20,7 @@ import logging
 import math
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .extractor import DeviceRecord
 from .rule_loader import DeviceRules
@@ -507,7 +507,21 @@ CONFLICT_REVIEW_SCHEMA = {
                     "reason": {"type": "string"},
                 },
             },
-        }
+        },
+        # L2 受控 agentic:模型可在此主动请求「定向重读」(代码闸门放行,受预算约束)
+        "need_reexamine": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["trace_code", "reason"],
+                "properties": {
+                    "trace_code": {"type": "string"},
+                    "reason": {"type": "string", "description": "为何上下文不足,需要重读"},
+                    "window": {"type": "string", "description": "想重看的串口/时间范围,如 COM3 16:50-16:52"},
+                },
+            },
+            "description": "可选:上下文不足时请求定向重读",
+        },
     },
 }
 
@@ -552,19 +566,48 @@ def llm_review_conflicts(
     max_records = int(cfg.get("max_conflict_records", 20))
     window = int(cfg.get("conflict_window_seconds", 120))
     radius = int(cfg.get("conflict_context_radius", 40))
+    radius_bump = int(cfg.get("conflict_context_radius_bump", 2))
     max_tokens = int(cfg.get("conflict_max_tokens", 4096))
+    # L2 受控 agentic 预算:模型自决「定向重读」的放行上限(默认 5 条总重读、每条至多 1 次)
+    max_reexamine_total = int(cfg.get("max_reexamine_total", 5))
+    max_reexamine_per_record = int(cfg.get("max_reexamine_per_record", 1))
     reviewed = 0
     corrected = 0
     zero_responses = 0
+    re_examined = 0
+    re_examine_granted = 0
+    re_examine_denied = 0
+    reexamine_budget = max_reexamine_total
     details: List[Dict[str, Any]] = []
 
     for rec in suspects[:max_records]:
         reviewed += 1
         context = _conflict_context(kept_lines, rec, window, radius)
-        fields = _call_conflict_review(rules, client, rec, context, max_tokens)
-        if fields is None:
-            zero_responses += 1
+        assignment, reexamine = _call_conflict_review(rules, client, rec, context, max_tokens)
+
+        # L2:模型自决「定向重读」——模型请求更宽上下文,代码闸门放行(受预算/每记录上限约束)
+        if reexamine and reexamine_budget > 0 and re_examined < max_reexamine_per_record:
+            re_examined += 1
+            reexamine_budget -= 1
+            re_examine_granted += 1
+            wider = _conflict_context(
+                kept_lines, rec, window, max(radius, int(radius * radius_bump))
+            )
+            if wider != context:
+                assignment2, _ = _call_conflict_review(rules, client, rec, wider, max_tokens)
+                if assignment2 is not None:
+                    assignment = assignment2
+                else:
+                    zero_responses += 1
+        elif reexamine:
+            re_examine_denied += 1
+
+        if assignment is None:
+            if not reexamine:
+                zero_responses += 1
             continue
+
+        fields = assignment
         changed_fields: List[str] = []
         for fname in ("sn", "mac", "iccid"):
             val = _norm(fields.get(fname))
@@ -598,6 +641,9 @@ def llm_review_conflicts(
         "reviewed": reviewed,
         "corrected": corrected,
         "zero_responses": zero_responses,
+        "re_examined": re_examined,
+        "re_examine_granted": re_examine_granted,
+        "re_examine_denied": re_examine_denied,
         "details": details,
     }
     # 空转探针:全部 0 响应时明确告警(推理模型 thinking 耗尽 token)
@@ -645,8 +691,15 @@ def _conflict_context(
 
 def _call_conflict_review(
     rules: DeviceRules, client, rec: DeviceRecord, context: str, max_tokens: int
-) -> Optional[Dict[str, Any]]:
-    """调用 LLM 复核单条嫌疑记录,失败返回 None。"""
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """调用 LLM 复核单条嫌疑记录,返回 (assignment, reexamine)。
+
+    assignment: 与本追溯码匹配的 assignment 项(可能为 None — 解析失败/未命中)。
+    reexamine:   模型的 need_reexamine 请求项(若存在并指向本记录);未请求则 None。
+
+    L2 受控 agentic:模型可在 response 中通过顶层 `need_reexamine` 主动请求「上下文不足,
+    想重看更宽窗口」,由调用方决定是否放行(预算内才发起第二次定向调用)。
+    """
     system = _build_system(rules)
     field_names = ["sn", "mac", "trace_code"] + (["iccid"] if rules.is_4g else [])
     user = (
@@ -660,7 +713,9 @@ def _call_conflict_review(
         "## 日志上下文(锚点附近)\n```text\n"
         f"{context[:12000]}\n```\n\n"
         f"输出 JSON Schema:\n{json.dumps(CONFLICT_REVIEW_SCHEMA, ensure_ascii=False, indent=2)}\n\n"
-        "只输出 JSON,不要输出任何分析过程;若无法确定,sn/mac/iccid 填当前值,confidence 填 low。"
+        "只输出 JSON,不要输出任何分析过程。\n"
+        "若当前上下文不足,可在顶层 need_reexamine 数组里说明想重看的窗口(串口/时间范围)与原因;\n"
+        "若上下文足够,直接给出 assignments(无法确定字段填当前值,confidence 填 low)。"
     )
     try:
         resp = client.complete(
@@ -670,15 +725,27 @@ def _call_conflict_review(
             temperature=0.0,
         )
         data = parse_json_response(resp.text)
-        if isinstance(data, dict):
-            items = data.get("assignments") or []
-            for item in items:
-                if isinstance(item, dict) and _norm(item.get("trace_code")) == _norm(rec.trace_code):
-                    return item
-            return items[0] if items else None
+        if not isinstance(data, dict):
+            return None, None
+        # 解析 assignment(与本追溯码匹配的那一项)
+        items = data.get("assignments") or []
+        assignment: Optional[Dict[str, Any]] = None
+        for item in items:
+            if isinstance(item, dict) and _norm(item.get("trace_code")) == _norm(rec.trace_code):
+                assignment = item
+                break
+        if assignment is None and items:
+            assignment = items[0] if isinstance(items[0], dict) else None
+        # 解析 reexamine(指向本记录的请求)
+        reexamine: Optional[Dict[str, Any]] = None
+        for r in (data.get("need_reexamine") or []):
+            if isinstance(r, dict) and _norm(r.get("trace_code")) == _norm(rec.trace_code):
+                reexamine = r
+                break
+        return assignment, reexamine
     except Exception as e:
         logger.warning("LLM 不确定记录复核失败 %s: %s", rec.trace_code, e)
-    return None
+    return None, None
 
 
 def _chunk_count(lines: List[str], chunk_lines: int) -> int:

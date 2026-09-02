@@ -574,4 +574,21 @@ def _render_llm_review_section(review_meta: Dict[str, Any]) -> List[str]:
             )
             lines.append("  - 各条目的复核结论已写入 xlsx『备注』列,供人工最终确认。")
 
+    conflict = review_meta.get("conflict_review") or {}
+    if conflict.get("enabled"):
+        if conflict.get("skipped"):
+            lines.append(f"- 不确定记录定向复核:跳过({conflict.get('skipped')})。")
+        else:
+            re_granted = conflict.get("re_examine_granted", 0)
+            re_denied = conflict.get("re_examine_denied", 0)
+            lines.append(
+                f"- 不确定记录定向复核:复核 {conflict.get('reviewed', 0)} 条低置信度记录,"
+                f"修正 {conflict.get('corrected', 0)} 条;"
+                f"模型主动请求「重读」 {re_granted + re_denied} 次(放行 {re_granted}/超预算拒绝 {re_denied})。"
+            )
+            if conflict.get("zero_responses"):
+                lines.append(
+                    f"  - {conflict.get('zero_responses')} 次 LLM 调用 0 响应(疑似推理模型空转)。"
+                )
+
     return lines

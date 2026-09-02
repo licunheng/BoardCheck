@@ -147,26 +147,14 @@ def generate_device_config(
     _report(progress_callback, "阶段 D/5: 硬质量自检(抽全率/重复率/唯一性/值合法性)")
     preview = _validate_and_preview(device_code, rules_dir, sample_log, sample_csv)
 
-    # 阶段 E: 迭代修正循环(达标才交付,不省调用次数;上限放宽到 5 轮)
+    # 阶段 E: 迭代修正循环(达标才交付,不省调用次数;上限 5 轮,结果不变提前停)
     max_rounds = 5
-    round_no = 0
-    fixes: Dict[str, Any] = {}
-    while preview.get("needs_fix") and round_no < max_rounds:
-        round_no += 1
-        _report(progress_callback, f"阶段 E/5: 第 {round_no}/{max_rounds} 轮修正正则…")
-        fixed = _fix_regexes(client, device_code, config, sample_log, preview, morphology, spec)
-        calls += 1
-        if not fixed:
-            break
-        _write_device_files(device_code, fixed, rules_dir=rules_dir)
-        preview = _validate_and_preview(device_code, rules_dir, sample_log, sample_csv)
-        fixes = fixed
-    if preview.get("needs_fix"):
-        _report(
-            progress_callback,
-            "自检未完全达标,已写入配置但仍建议人工核对(见「待人工复核」列表)",
-        )
-
+    preview, fixes, fix_rounds, _prev_attempts = _run_fix_rounds(
+        client, device_code, config, sample_log, sample_csv,
+        morphology, spec, rules_dir, progress_callback, max_rounds,
+        initial_preview=preview,
+    )
+    calls += fix_rounds
     if preview.get("needs_fix"):
         _report(
             progress_callback,
@@ -544,19 +532,36 @@ def _fix_regexes(
     preview,
     morphology: str = "",
     spec: Optional[Dict[str, Any]] = None,
+    previous_attempts: Optional[Dict[str, List[str]]] = None,
 ) -> Optional[Dict[str, Any]]:
+    """根据「结构化诊断」修正正则,返回四件套 JSON(无问题/解析失败返回 None)。
+
+    L1 受控 agentic:把自检结果从「文本 issues」升级为结构化 `diagnosis`
+    (哪个字段覆盖率低、哪些行未命中、已尝试过哪些正则),让 LLM 精准修正而非盲试。
+    """
     issues = preview.get("issues") or []
     if not issues:
         return None
+    diagnosis = preview.get("diagnosis") or {}
     spec_json = json.dumps(spec or {}, ensure_ascii=False, indent=2)
+    diag_json = json.dumps(diagnosis, ensure_ascii=False, indent=2)
+    prev_lines: List[str] = []
+    for fname, regexes in (previous_attempts or {}).items():
+        if regexes:
+            prev_lines.append(f"- {fname}: " + "; ".join(regexes))
     user = (
         f"设备代号: {device_code}\n\n"
         f"## 字段规格(依据)\n```json\n{spec_json}\n```\n\n"
         f"## 形态分析(参考)\n{morphology[:_SAMPLE_LOG_MAX]}\n\n"
         f"## 当前配置\n```json\n{json.dumps(config, ensure_ascii=False, indent=2)}\n```\n\n"
-        f"## 自检发现的问题\n"
-        + "\n".join(f"- {i}" for i in issues)
+        f"## 自检诊断(结构化)\n```json\n{diag_json}\n```\n\n"
+        "## 问题清单(文本摘要)\n- "
+        + "\n- ".join(issues)
+        + "\n\n## 已尝试过的正则(不要再原样重复)\n"
+        + ("\n".join(prev_lines) if prev_lines else "(无)")
         + f"\n\n## 板检日志样例\n```text\n{sample_log[:_SAMPLE_LOG_MAX]}\n```\n\n"
+        "只修正 diagnosis.fields 中 coverage<80 且 failed_lines 非空的字段,已命中的字段不要改;"
+        "让新正则能命中那些 failed_lines 行,且不误匹配其他行。\n"
         "请修正正则并输出四件套 JSON(结构同生成阶段):"
         " {\"device_json\":{...},\"filter_rules_json\":{...},\"extraction_rules_json\":{...},\"prompts_md\":\"...\"}"
     )
@@ -564,6 +569,73 @@ def _fix_regexes(
     if not isinstance(data, dict) or "extraction_rules_json" not in data:
         return None
     return data
+
+
+def _run_fix_rounds(
+    client,
+    device_code: str,
+    config: Dict[str, Any],
+    sample_log: str,
+    sample_csv: str,
+    morphology: str,
+    spec: Optional[Dict[str, Any]],
+    rules_dir: Path,
+    progress_callback: Optional[Callable[[str], None]] = None,
+    max_rounds: int = 5,
+    initial_preview: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any], int, Dict[str, List[str]]]:
+    """阶段 E 迭代修正循环:自检不达标 → 带结构化诊断回炉;达标/达上限/结果不变提前停。
+
+    Returns:
+        (preview, fixes, round_no, previous_attempts)
+        round_no = 实际发起 _fix_regexes 的次数(供 generate_device_config 的 calls 计数)
+    """
+    preview = (
+        initial_preview if initial_preview is not None
+        else _validate_and_preview(device_code, rules_dir, sample_log, sample_csv)
+    )
+    round_no = 0
+    fixes: Dict[str, Any] = {}
+    previous_attempts = _collect_regexes(config)
+    last_fixed_extraction: Optional[str] = None
+    while preview.get("needs_fix") and round_no < max_rounds:
+        round_no += 1
+        _report(progress_callback, f"阶段 E/5: 第 {round_no}/{max_rounds} 轮修正正则…")
+        fixed = _fix_regexes(
+            client, device_code, config, sample_log, preview, morphology, spec, previous_attempts
+        )
+        if not fixed:
+            break
+        # 提前停:修正结果与上一轮完全相同(LLM 无法再改进)→ 停止,防最后一轮空转
+        cur_extraction = json.dumps(
+            fixed.get("extraction_rules_json") or {}, ensure_ascii=False, sort_keys=True
+        )
+        if last_fixed_extraction is not None and cur_extraction == last_fixed_extraction:
+            logger.info("阶段 E:第 %d 轮修正与上一轮相同,提前停止", round_no)
+            break
+        last_fixed_extraction = cur_extraction
+        # 记录本轮已试正则,下一轮提示 LLM 不要原样重复
+        for fname, cfg in (fixed.get("extraction_rules_json") or {}).get("field_extractors", {}).items():
+            regex = (cfg or {}).get("regex") or ""
+            if regex:
+                bucket = previous_attempts.setdefault(fname, [])
+                if regex not in bucket:
+                    bucket.append(regex)
+        _write_device_files(device_code, fixed, rules_dir=rules_dir)
+        preview = _validate_and_preview(device_code, rules_dir, sample_log, sample_csv)
+        fixes = fixed
+    return preview, fixes, round_no, previous_attempts
+
+
+def _collect_regexes(config: Dict[str, Any]) -> Dict[str, List[str]]:
+    """从当前配置中收集每个字段的现有正则,作为「已尝试」的初始记录。"""
+    out: Dict[str, List[str]] = {}
+    fe = (config.get("extraction_rules_json") or {}).get("field_extractors") or {}
+    for fname, cfg in fe.items():
+        regex = (cfg or {}).get("regex") or ""
+        if regex:
+            out[fname] = [regex]
+    return out
 
 
 # === LLM 调用与 JSON 解析 ===
@@ -692,7 +764,13 @@ def _write_device_files(device_code: str, config: Dict[str, Any], rules_dir: Opt
 def _validate_and_preview(
     device_code: str, rules_dir: Path, sample_log: str, sample_csv: str = ""
 ) -> Dict[str, Any]:
-    """确定性硬质量自检: 加载规则(正则编译) + 样例试抽 + 去重率 + 唯一性 + 平台列名。"""
+    """确定性硬质量自检: 加载规则(正则编译) + 样例试抽 + 去重率 + 唯一性 + 平台列名。
+
+    返回 dict 额外带 `diagnosis` 结构化诊断(供 LLM 修正轮次做精准反馈):
+      diagnosis.fields.<field> = {"coverage", "matched", "total", "failed_lines": [锚点行±2]}
+      diagnosis.quality = {conflicts, truncated_iccid, deduped, raw_count, cleaned_count}
+      diagnosis.value_issues = [像标签/串口的值问题]
+    """
     issues: List[str] = []
     needs_fix = False
 
@@ -738,11 +816,14 @@ def _validate_and_preview(
 
     field_names = ["sn", "mac", "trace_code"] + (["iccid"] if rules.is_4g else [])
     coverage: Dict[str, float] = {}
+    matched: Dict[str, int] = {}
     for fname in field_names:
         if not records:
             coverage[fname] = 0.0
+            matched[fname] = 0
             continue
         got = sum(1 for r in records if getattr(r, fname))
+        matched[fname] = got
         coverage[fname] = round(got / len(records) * 100, 1)
 
     # 4. 硬质量门槛(不达标才需要修正)
@@ -764,7 +845,30 @@ def _validate_and_preview(
         issues.append(f"样例抽取存在 {quality['truncated_iccid']} 条 ICCID 长度异常")
 
     # 4.5 值合法性门槛:抽出的字段值不得像「标签/串口/字段名」(治 COM 口字段名回归)
-    _add_value_validity_issues(records, issues, needs_fix)
+    value_issues = _add_value_validity_issues(records)
+    issues.extend(value_issues)
+    if value_issues:
+        needs_fix = True
+
+    diagnosis = {
+        "fields": {
+            fname: {
+                "coverage": coverage.get(fname, 0.0),
+                "matched": matched.get(fname, 0),
+                "total": len(records),
+                "failed_lines": _collect_failed_lines(records, kept, fname),
+            }
+            for fname in field_names
+        },
+        "quality": {
+            "conflicts": quality.get("conflicts", 0),
+            "truncated_iccid": quality.get("truncated_iccid", 0),
+            "deduped": quality.get("deduped", 0),
+            "raw_count": raw_count,
+            "cleaned_count": quality.get("cleaned_count", 0),
+        },
+        "value_issues": value_issues,
+    }
 
     return {
         "compiled": True,
@@ -775,12 +879,45 @@ def _validate_and_preview(
         "deduped": quality.get("deduped", 0),
         "field_coverage": coverage,
         "kept_lines": len(kept),
+        "diagnosis": diagnosis,
     }
 
 
-def _add_value_validity_issues(records: List[Any], issues: List[str], needs_fix: bool) -> None:
-    """值合法性门槛:抽出的字段值若含 COM/冒号/过长(像标签不像值),判失败回炉。"""
+def _collect_failed_lines(records: List[Any], kept: List[str], field_name: str) -> List[str]:
+    """收集某字段缺失的记录的锚点行上下文(锚点行 ±2 行),供 LLM 精准修正。
+
+    每条字段最多取 10 条去重上下文,防 prompt 超长。
+    """
+    if not records:
+        return []
+    out: List[str] = []
+    seen: set = set()
+    for r in records:
+        if getattr(r, field_name):
+            continue
+        line_no = getattr(r, "source_line", None)
+        if line_no is None:
+            snippet = "(无行号锚点)"
+        else:
+            start = max(0, line_no - 1 - 2)
+            end = min(len(kept), line_no - 1 + 2 + 1)
+            snippet = " | ".join(kept[start:end])
+        if snippet not in seen:
+            seen.add(snippet)
+            out.append(snippet)
+        if len(out) >= 10:
+            break
+    return out
+
+
+def _add_value_validity_issues(records: List[Any]) -> List[str]:
+    """值合法性检查:字段值若含 COM/冒号/过长(像标签不像值),返回问题列表(由调用方决定 needs_fix)。
+
+    注意:旧实现把 needs_fix 按值传入并在函数内 `needs_fix = True`,但 bool 不可变,
+    该标记丢失(只 append 了 issues);现改为返回问题列表,由 _validate_and_preview 统一传导。
+    """
     import re as _re
+    problems: List[str] = []
     for r in records:
         for field in ("sn", "mac", "iccid", "trace_code"):
             val = getattr(r, field)
@@ -797,11 +934,11 @@ def _add_value_validity_issues(records: List[Any], issues: List[str], needs_fix:
             elif field in ("sn", "mac", "trace_code") and len(v) > 60:
                 bad = True
             if bad:
-                needs_fix = True
-                issues.append(
+                problems.append(
                     f"字段 {field} 抽出的值像「标签/串口」而非真值:{v[:40]!r},正则可能捕获了前缀"
                 )
                 break
+    return problems
 
 
 def _check_sample_csv_columns(sample_csv: str, rules: DeviceRules) -> List[str]:

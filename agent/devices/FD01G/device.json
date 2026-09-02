@@ -1,0 +1,46 @@
+{
+  "device_code": "FD01G",
+  "display_name": "FD01G 飞奕网关板检",
+  "is_4g": true,
+  "version": "1.0.0",
+  "description": "FD01G(QSH 三华代工)4G 网关板检。MAC 派生自追溯码后 12 位;SN 32 位 hex(A系列uuid 列);ICCID 20 位 hex(4G信息);追溯码权威形态'回复网关SN:'。",
+  "platform_csv_columns": {
+    "sn": "A系列uuid",
+    "trace_code": "追溯码",
+    "mac": "蓝牙mac",
+    "iccid": "4G信息"
+  },
+  "field_definitions": {
+    "sn": {
+      "description": "32 位 hex 设备 SN,A系列uuid 列,内部物理稳定",
+      "pattern_in_raw": "[0-9A-Fa-f]{32}",
+      "anchor_in_text_log": "收\\s*:id:\\s*([0-9A-Fa-f]{32})",
+      "example": "C67A9DD0046AA551207688F155200D40"
+    },
+    "mac": {
+      "description": "12 位 hex 蓝牙 MAC,日志 COMx:MAC: 行打印(注意是'MAC:'不是'mac:'),派生自追溯码末 12 位",
+      "pattern_in_raw": "[0-9A-Fa-f]{12}",
+      "anchor_in_text_log": "(?<![0-9A-Fa-f])MAC\\s*:\\s*([0-9A-Fa-f]{12})(?![0-9A-Fa-f])",
+      "example": "88F155200D42"
+    },
+    "iccid": {
+      "description": "20 位 hex ICCID,日志'4G CCID:'行(注意 4G 与 CCID 之间有空格,拼写为 CCID)",
+      "pattern_in_raw": "8986[0-9A-Fa-f]{16}",
+      "anchor_in_text_log": "4G\\s+CCID\\s*:\\s*(8986[0-9A-Fa-f]{16})",
+      "example": "898604171025D0022031"
+    },
+    "trace_code": {
+      "description": "22 位字母数字追溯码,家族常量 F233QSHI5 (9 位),变体 4 位(F233QSHI5 + 4 chars),后 9 位 hex。权威形态:'回复网关SN:'。变体段 4 字符示例:L88F/N88F/P8C9/P88F/Q88F/R8C94/U8C94/LF016/RF016/MF016 等。",
+      "pattern_in_raw": "F233QSHI5[A-Z0-9]{4}[0-9A-Fa-f]{9}",
+      "anchor_in_text_log": "回复网关SN\\s*:\\s*(F233QSHI5[A-Z0-9]{4}[0-9A-Fa-f]{9})",
+      "example": "F233QSHI5R88F155200D42"
+    }
+  },
+  "field_constraints": {
+    "mac_derived_from_trace": true,
+    "mac_trace_suffix_len": 12,
+    "sn_format": "^[0-9A-Fa-f]{32}$",
+    "iccid_starts_with": "8986",
+    "iccid_length": [19, 21]
+  }
+}

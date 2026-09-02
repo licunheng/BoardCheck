@@ -346,6 +346,193 @@ def test_extract_text_logs_per_file_no_cross_day_binding():
         shutil.rmtree(tmpdir)
 
 
+def test_diagnosis_keys_in_validate_preview():
+    """L1:_validate_and_preview 返回的 preview 必须含 diagnosis 结构化键。
+
+    检查诊断字段(fields.coverage/matched/total/failed_lines / quality / value_issues),
+    而不仅是文本 issues。
+    """
+    from agent.core.device_generator import _validate_and_preview
+
+    rules_dir = Path(tempfile.mkdtemp())
+    try:
+        preview = _validate_and_preview(
+            "A02FG", rules_dir, sample_log="xx 无效日志\n", sample_csv=""
+        )
+        assert "diagnosis" in preview, "preview 必须含 diagnosis 键"
+        diag = preview["diagnosis"]
+        assert "fields" in diag, "diagnosis 必须含 fields"
+        assert "quality" in diag, "diagnosis 必须含 quality"
+        assert "value_issues" in diag, "diagnosis 必须含 value_issues"
+        for fname in ("sn", "mac", "iccid", "trace_code"):
+            assert fname in diag["fields"], f"diagnosis.fields 缺 {fname}"
+            assert {"coverage", "matched", "total", "failed_lines"} <= set(diag["fields"][fname])
+    finally:
+        shutil.rmtree(rules_dir, ignore_errors=True)
+
+
+def test_fix_regexes_user_prompt_includes_diagnosis():
+    """L1:_fix_regexes 必须把 diagnosis + 已试正则表注入 user prompt,不再仅传 issues。
+
+    通过 stub client 捕获 user_prompt,断言含「自检诊断(结构化)」与「已尝试过的正则」块。
+    """
+    from agent.core.device_generator import _fix_regexes
+
+    captured = {}
+
+    class _StubClient:
+        def complete(self, system_prompt, user_prompt, max_tokens=None, temperature=None):
+            captured["user"] = user_prompt
+            class _R:
+                text = '{"extraction_rules_json": {"field_extractors": {}}}'
+                raw = {}
+                elapsed_seconds = 0.0
+            return _R()
+
+    preview = {
+        "issues": ["字段 sn 抽全率仅 50%"],
+        "diagnosis": {
+            "fields": {
+                "sn": {"coverage": 50.0, "matched": 1, "total": 2,
+                       "failed_lines": ["17:51:29 | COM9:发: trace code:F176D20"]},
+                "mac": {"coverage": 100.0, "matched": 2, "total": 2, "failed_lines": []},
+                "iccid": {"coverage": 100.0, "matched": 2, "total": 2, "failed_lines": []},
+                "trace_code": {"coverage": 100.0, "matched": 2, "total": 2, "failed_lines": []},
+            },
+            "quality": {"conflicts": 0, "truncated_iccid": 0, "deduped": 0},
+            "value_issues": [],
+        },
+    }
+    config = {"extraction_rules_json": {"field_extractors": {
+        "sn": {"regex": "OLD_REGEX_A", "context_anchor": "OLD_REGEX_A"}
+    }}}
+    ret = _fix_regexes(
+        _StubClient(), "TEST", config, "sample log...", preview,
+        morphology="", spec={},
+        previous_attempts={"sn": ["OLD_REGEX_A"]},
+    )
+    assert isinstance(ret, dict) and "extraction_rules_json" in ret
+    user = captured["user"]
+    assert "自检诊断(结构化)" in user, "user 必须含结构化诊断块"
+    assert "已尝试过的正则" in user, "user 必须含已尝试正则表,防 LLM 原样重复"
+    assert "OLD_REGEX_A" in user, "已试正则必须出现在 prompt 里"
+    assert "failed_lines" in user, "诊断中的失败行必须注入 prompt"
+
+
+def test_run_fix_rounds_breaks_on_unchanged_config():
+    """L1 护栏:_run_fix_rounds 在 LLM 返回的 extraction_rules_json 与上一轮完全相同时 break。
+
+    不再把同一份「错配置」重复写回 + 再校验,避免最后一轮空转。
+    """
+    from agent.core.device_generator import _run_fix_rounds
+
+    rules_dir = Path(tempfile.mkdtemp())
+    try:
+        fixed_extraction = {
+            "version": "1.0", "field_extractors": {
+                "sn": {"regex": "R", "context_anchor": "R"},
+                "mac": {"regex": "R", "context_anchor": "R"},
+                "trace_code": {"regex": "R", "context_anchor": "R"},
+            }
+        }
+        (rules_dir / "device.json").write_text(
+            '{"device_code": "A02FG", "display_name": "A02FG", "is_4g": true}', encoding="utf-8"
+        )
+        (rules_dir / "filter_rules.json").write_text(
+            '{"keep_patterns": [], "drop_patterns": []}', encoding="utf-8"
+        )
+        (rules_dir / "extraction_rules.json").write_text(
+            json.dumps(fixed_extraction), encoding="utf-8"
+        )
+        (rules_dir / "prompts.md").write_text("", encoding="utf-8")
+
+        calls = {"n": 0}
+
+        class _StubClient:
+            def complete(self, system_prompt, user_prompt, max_tokens=None, temperature=None):
+                calls["n"] += 1
+                class _R:
+                    text = json.dumps({
+                        "device_json": {"device_code": "A02FG"},
+                        "filter_rules_json": {},
+                        "extraction_rules_json": fixed_extraction,
+                        "prompts_md": "",
+                    }, ensure_ascii=False)
+                    raw = {}
+                    elapsed_seconds = 0.0
+                return _R()
+
+        config = {
+            "device_json": {"device_code": "A02FG", "display_name": "A02FG", "is_4g": True},
+            "filter_rules_json": {"keep_patterns": [], "drop_patterns": []},
+            "extraction_rules_json": fixed_extraction,
+            "prompts_md": "",
+        }
+        preview, fixes, rounds, _ = _run_fix_rounds(
+            _StubClient(), "A02FG", config, "", "", "", {}, rules_dir,
+            progress_callback=None, max_rounds=5,
+            initial_preview={"needs_fix": True, "issues": ["x"], "diagnosis": {
+                "fields": {}, "quality": {}, "value_issues": []}},
+        )
+        # 因 LLM 每次返回相同 extraction_rules_json,第二轮判定「未变化」→ break
+        assert calls["n"] <= 2, f"修正未变时应提前停,实际调用 {calls['n']} 次"
+        assert rounds <= 2, f"修正未变时 rounds≤2,实际 {rounds}"
+    finally:
+        shutil.rmtree(rules_dir, ignore_errors=True)
+
+
+def test_conflict_review_schema_has_need_reexamine():
+    """L2:CONFLICT_REVIEW_SCHEMA 必须含 need_reexamine 可选字段,让模型可主动请求重读。"""
+    from agent.core.llm_review import CONFLICT_REVIEW_SCHEMA
+
+    props = CONFLICT_REVIEW_SCHEMA["properties"]
+    assert "need_reexamine" in props, "CONFLICT_REVIEW_SCHEMA 必须含 need_reexamine"
+    re_item = props["need_reexamine"]["items"]["properties"]
+    assert {"trace_code", "reason"} <= set(re_item), "need_reexamine 项必须含 trace_code + reason"
+
+
+def test_call_conflict_review_returns_reexamine():
+    """L2:_call_conflict_review 返回 (assignment, reexamine) 二元组,并能解析 need_reexamine。"""
+    from agent.core.llm_review import _call_conflict_review
+    from agent.core.extractor import DeviceRecord
+    from agent.core.rule_loader import DeviceRules
+
+    rules = DeviceRules(
+        device_code="T", display_name="T", is_4g=False, version="0",
+        description="", platform_csv_columns={}, field_definitions={},
+        field_constraints={}, filter_rules={}, extraction_rules={},
+        prompts_md="", rules_dir=None,
+    )
+    rec = DeviceRecord(trace_code="TC1", com_port="3", sn="A", mac="B", iccid=None,
+                       trace_response_time=None, source_line=1, confidence="low",
+                       extraction_method="regex", notes="")
+
+    class _StubClient:
+        def __init__(self, payload):
+            self.payload = payload
+        def complete(self, system_prompt, user_prompt, max_tokens=None, temperature=None):
+            class _R:
+                text = self.payload
+                raw = {}
+                elapsed_seconds = 0.0
+            return _R()
+
+    payload = json.dumps({
+        "assignments": [{"trace_code": "TC1", "sn": "C", "mac": "D",
+                         "iccid": None, "confidence": "medium", "reason": "ok"}],
+        "need_reexamine": [{"trace_code": "TC1", "reason": "上下文太窄",
+                            "window": "COM3 16:50-16:52"}],
+    }, ensure_ascii=False)
+    a, r = _call_conflict_review(rules, _StubClient(payload), rec, "ctx", 1024)
+    assert isinstance(a, dict) and a.get("sn") == "C"
+    assert isinstance(r, dict) and r.get("reason") == "上下文太窄"
+
+    # 解析失败时返回 (None, None),不抛异常
+    bad = _StubClient("not a json {")
+    a2, r2 = _call_conflict_review(rules, bad, rec, "ctx", 1024)
+    assert a2 is None and r2 is None
+
+
 if __name__ == "__main__":
     test_anchor_without_group_uses_regex_group()
     print("✓ 抽取器:锚点无捕获组时改用 regex 捕获组,不再返回 COM口/字段名")
@@ -369,4 +556,14 @@ if __name__ == "__main__":
     print("✓ SN 绑定:优先锚点后的 id,不再偷上一台设备的旧 SN")
     test_extract_text_logs_per_file_no_cross_day_binding()
     print("✓ 多文件抽取:跨日 SN 不错绑(file2 设备绑对 file2 SN,非 file1)")
+    test_diagnosis_keys_in_validate_preview()
+    print("✓ device_generator:_validate_and_preview 返回结构化 diagnosis")
+    test_fix_regexes_user_prompt_includes_diagnosis()
+    print("✓ device_generator:_fix_regexes 把结构化诊断注入 user prompt")
+    test_run_fix_rounds_breaks_on_unchanged_config()
+    print("✓ device_generator:修正结果不变时提前停,不再空转")
+    test_conflict_review_schema_has_need_reexamine()
+    print("✓ llm_review:CONFLICT_REVIEW_SCHEMA 含 need_reexamine 可选字段")
+    test_call_conflict_review_returns_reexamine()
+    print("✓ llm_review:_call_conflict_review 返回 (assignment, reexamine)")
     print("全部通过")

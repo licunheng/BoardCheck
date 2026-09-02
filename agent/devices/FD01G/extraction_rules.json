@@ -1,0 +1,74 @@
+{
+  "version": "1.0.0",
+  "description": "FD01G 字段抽取规则(正则优先级最高,LLM 作为兜底)。MAC 派生自追溯码末 12 位,绑定直接用 trace 锚点(无需时间窗就近)。",
+  "extraction_priority": "regex_first_llm_fallback",
+  "field_extractors": {
+    "sn": {
+      "regex": "(?:收\\s*:id:\\s*|收\\s*:560D0410|收\\s*:560E0410)([0-9A-Fa-f]{32})",
+      "context_anchor": "(?:收\\s*:id:\\s*|收\\s*:560D0410|收\\s*:560E0410)([0-9A-Fa-f]{32})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "SN 32 位 hex 三种打印形态 — ① 旧式 '收 :id:'(5/21 老批次,275 条)、② '收:560D0410<SN>18'(SN 查询协议应答,1896 条)、③ '收:560E0410<SN>'(授权包携带 SN,5/26+ 5/27 共 ~60 条,与 568B0816 同链路)。SN 末 12 位 = 蓝牙 MAC = 追溯码末 12 位(派生关系)。"
+    },
+    "mac": {
+      "regex": "(?<![0-9A-Fa-f])MAC\\s*:\\s*([0-9A-Fa-f]{12})(?![0-9A-Fa-f])",
+      "context_anchor": "(?<![0-9A-Fa-f])MAC\\s*:\\s*([0-9A-Fa-f]{12})(?![0-9A-Fa-f])",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "MAC 来自 'COMx:MAC:' 行(注意大写 MAC,非小写 mac),12 位 hex。实测 1495/1495:mac == 追溯码后 12 位(派生关系 100%)。"
+    },
+    "iccid": {
+      "regex": "4G\\s+CCID\\s*:\\s*(8986[0-9A-Fa-f]{16})",
+      "context_anchor": "4G\\s+CCID\\s*:\\s*(8986[0-9A-Fa-f]{16})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "notes": "ICCID 来自 '4G CCID:' 行(注意 4G 与 CCID 之间有空格,拼写为 CCID),20 位 hex,以 8986 开头。"
+    },
+    "trace_code": {
+      "regex": "回复网关SN\\s*:\\s*(F233QSHI5[A-Z0-9]{4}[0-9A-Fa-f]{9})",
+      "context_anchor": "回复网关SN\\s*:\\s*(F233QSHI5[A-Z0-9]{4}[0-9A-Fa-f]{9})",
+      "post_process": [
+        "trim",
+        "upper"
+      ],
+      "must_be_present": true,
+      "authoritative_forms": [
+        "回复网关SN"
+      ],
+      "notes": "追溯码权威形态 '回复网关SN:'(同发后立即 '收到回复网关SN:...写入成功!' 两条),变体段 4 位实测:L88F/L8C9/N88F/N8C9/P88F/P8C9/M88F/M8C9/Q88F/Q8C9/R88F/R8C9/U8C9(对应 5 月 21/25/26/27/30 日批次)。regex 用 9 位家族常量 + 4 位变体 + 9 位 hex 收口,避免漏掉新批次。"
+    }
+  },
+  "session_binding": {
+    "description": "FD01G 同一设备测试循环的 4 个关键行(sn/mac/iccid/trace)绑定。MAC 派生自追溯码末 12 位,绑定锚点统一用 trace_code 回复时间",
+    "method": "temporal_proximity",
+    "window_seconds": 300,
+    "tie_breaker": "trace_code_response_time",
+    "sn_direction": "before",
+    "iccid_direction": "before"
+  },
+  "cross_field_validation": {
+    "mac_derived_from_trace": true,
+    "mac_trace_suffix_len": 12,
+    "sn_last_12_equal_mac": true,
+    "iccid_starts_with_8986": true
+  },
+  "llm_fallback": {
+    "enabled": true,
+    "trigger_when_regex_fails": true,
+    "max_lines_per_call": 500,
+    "prompt_section": "extraction"
+  },
+  "llm_verification": {
+    "enabled": false,
+    "note": "FD01G 字段形态稳定,正则全抽,LLM 复核不开(避免推理模型空转,见 docs/debugging/05)"
+  }
+}
