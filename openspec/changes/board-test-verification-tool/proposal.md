@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 新增 **`board-test-verification`** 能力：板检数据核验 Agent 的端到端工作流（文件导入 → 预处理 → LLM 解析 → 三份报告输出）
+- 新增 **`board-test-verification`** 能力：板检数据核验工具 的端到端工作流（文件导入 → 预处理 → LLM 解析 → 三份报告输出）
 - 新增 **`device-rule-plugin`** 能力：以 JSON 文件方式注入设备规则（字段锚点、4G 判定、过滤规则、解析正则）的可扩展插件接口，新增设备无需改代码
 - 新增 **`llm-prompt-engine`** 能力：四层 Prompt 组装（System Role / 业务规则 / 输入数据 / 输出约束），支持 4G 设备判定、半结构化日志解析、结构化 JSON 输出
 - 新增 **`verification-reports`** 能力：三份报告的确定性生成 —— 详细对比表（xlsx）、重传 CSV（仅未上报/不一致）、AI 分析报告（md）

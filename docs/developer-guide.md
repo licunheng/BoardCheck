@@ -1,4 +1,4 @@
-# 板检数据核验 Agent · 开发者阅读指引
+# 板检数据核验工具 · 开发者阅读指引
 
 > 面向后续维护者。读完本文应能:(1)说清一次核验的完整数据流;(2)定位每个阶段对应的文件与函数;(3)安全地新增设备、改引擎、加 LLM 节点;(4)复现调试与打包流程。
 
@@ -20,7 +20,7 @@ agent_project_plan/
 ├── agent_project.spec        # PyInstaller 打包配置(单文件 EXE,~19MB)
 ├── build.py                  # 打包脚本(可选)
 ├── requirements.txt
-├── 板检数据核验Agent.exe      # 当前可分发 EXE(根目录 = 部署副本)
+├── 板检数据核验工具.exe      # 当前可分发 EXE(根目录 = 部署副本)
 ├── dist/                     # PyInstaller 产物(新 EXE 先落这里,再 cp 到根目录)
 │
 ├── agent/                    # 引擎包(打包进 EXE)
@@ -210,9 +210,9 @@ python -c "from agent.core.verifier import run_verification; ..."
 ### 打包 EXE
 ```bash
 pyinstaller agent_project.spec --noconfirm
-cp dist/板检数据核验Agent.exe 板检数据核验Agent.exe   # 部署到根目录
+cp dist/板检数据核验工具.exe 板检数据核验工具.exe   # 部署到根目录
 ```
-- 产物:`dist/板检数据核验Agent.exe`(~19MB,含 Python 运行时 + Flask + openpyxl + requests)
+- 产物:`dist/板检数据核验工具.exe`(~19MB,含 Python 运行时 + Flask + openpyxl + requests)
 - EXE 启动后读 **EXE 同级 `devices/`**(热替换)优先于内置 `agent/devices/`
 - 改 `agent/static/`(UI)或 `agent/core/`(引擎)后**必须重打包**;改 `devices/<code>/`(设备配置)**无需重打包**
 

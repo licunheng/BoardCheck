@@ -1,4 +1,4 @@
-"""Agent 启动入口。
+"""工具启动入口。
 
 可通过以下方式启动:
 - `python -m agent` 启动 Web UI(本地浏览器访问)
@@ -13,7 +13,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        description="板检数据核验 Agent",
+        description="板检数据核验工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:

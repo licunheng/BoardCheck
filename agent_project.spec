@@ -74,7 +74,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='板检数据核验Agent',
+    name='板检数据核验工具',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

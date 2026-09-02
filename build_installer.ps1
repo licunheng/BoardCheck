@@ -1,10 +1,10 @@
-﻿# 板检数据核验 Agent - 一键打包安装包脚本
+﻿# 板检数据核验工具 - 一键打包安装包脚本
 # 用法: powershell -ExecutionPolicy Bypass -File build_installer.ps1
-# 前置: dist/板检数据核验Agent.exe(最新 EXE)与 devices/ 目录已就绪
+# 前置: dist/板检数据核验工具.exe(最新 EXE)与 devices/ 目录已就绪
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-Write-Host "== 板检数据核验 Agent 打包 ==" -ForegroundColor Cyan
+Write-Host "== 板检数据核验工具 打包 ==" -ForegroundColor Cyan
 
 # 1. 准备 staging
 $stage = Join-Path $PSScriptRoot '_installer_stage'
@@ -13,7 +13,7 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'devices') -Force | Out-Null
 
 # 2. 复制主 EXE + 设备配置
-Copy-Item (Join-Path $PSScriptRoot 'dist\板检数据核验Agent.exe') $stage
+Copy-Item (Join-Path $PSScriptRoot 'dist\板检数据核验工具.exe') $stage
 Copy-Item (Join-Path $PSScriptRoot 'devices\A02EG') (Join-Path $stage 'devices') -Recurse
 Copy-Item (Join-Path $PSScriptRoot 'devices\A02SG') (Join-Path $stage 'devices') -Recurse
 Copy-Item (Join-Path $PSScriptRoot 'devices\F16G') (Join-Path $stage 'devices') -Recurse
@@ -28,7 +28,7 @@ if (-not (Test-Path (Join-Path $stage 'install.cmd'))) {
 
 # 4. 打 zip
 $zip = Join-Path $stage 'package.zip'
-Compress-Archive -Path (Join-Path $stage 'install.cmd'),(Join-Path $stage '板检数据核验Agent.exe'),(Join-Path $stage 'README.txt'),(Join-Path $stage 'devices') -DestinationPath $zip -CompressionLevel Optimal -Force
+Compress-Archive -Path (Join-Path $stage 'install.cmd'),(Join-Path $stage '板检数据核验工具.exe'),(Join-Path $stage 'README.txt'),(Join-Path $stage 'devices') -DestinationPath $zip -CompressionLevel Optimal -Force
 
 # 5. 编译 C# stub(使用 .NET Framework 自带 csc,无需额外环境)
 $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -37,7 +37,7 @@ $stubExe = Join-Path $stage 'stub.exe'
 & $csc -nologo -target:winexe -out:$stubExe -r:System.IO.Compression.dll -r:System.IO.Compression.FileSystem.dll -r:System.Windows.Forms.dll $stubCs
 
 # 6. 拼接 stub + zip = 安装包(用字节拼接,避免 cmd 中文路径问题)
-$output = Join-Path $PSScriptRoot '板检数据核验Agent-安装包.exe'
+$output = Join-Path $PSScriptRoot '板检数据核验工具-安装包.exe'
 $stubBytes = [IO.File]::ReadAllBytes($stubExe)
 $zipBytes = [IO.File]::ReadAllBytes($zip)
 $outBytes = New-Object byte[] ($stubBytes.Length + $zipBytes.Length)

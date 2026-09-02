@@ -4,14 +4,14 @@ using System.IO.Compression;
 using System.Text;
 using System.Diagnostics;
 
-// 板检数据核验 Agent - 自解压安装器
+// 板检数据核验工具 - 自解压安装器
 // 用法:把 package.zip 附加到本程序末尾(copy /b stub.exe + package.zip = 安装包.exe)
-// 运行时:从自身尾部定位 zip -> 解压到 %LOCALAPPDATA%\板检数据核验Agent -> 建桌面快捷方式 -> 启动
+// 运行时:从自身尾部定位 zip -> 解压到 %LOCALAPPDATA%\板检数据核验工具 -> 建桌面快捷方式 -> 启动
 class Installer
 {
-    static readonly string APP_NAME = "\u677f\u68c0\u6570\u636e\u6838\u9a8cAgent"; // 板检数据核验Agent
-    static readonly string EXE_NAME = "\u677f\u68c0\u6570\u636e\u6838\u9a8cAgent.exe"; // 板检数据核验Agent.exe
-    static readonly string SHORTCUT = "\u677f\u68c0\u6570\u636e\u6838\u9a8c Agent.lnk"; // 板检数据核验 Agent.lnk
+    static readonly string APP_NAME = "\u677f\u68c0\u6570\u636e\u6838\u9a8c\u5de5\u5177"; // 板检数据核验工具
+    static readonly string EXE_NAME = "\u677f\u68c0\u6570\u636e\u6838\u9a8c\u5de5\u5177.exe"; // 板检数据核验工具.exe
+    static readonly string SHORTCUT = "\u677f\u68c0\u6570\u636e\u6838\u9a8c\u5de5\u5177.lnk"; // 板检数据核验工具.lnk
 
     [STAThread]
     static int Main(string[] args)
@@ -30,7 +30,7 @@ class Installer
                 return 1;
             }
 
-            // 2. 默认安装目录:%LOCALAPPDATA%\板检数据核验Agent,支持 /d=<path>
+            // 2. 默认安装目录:%LOCALAPPDATA%\板检数据核验工具,支持 /d=<path>
             string dest = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 APP_NAME);
@@ -78,14 +78,14 @@ class Installer
 
             string msg = "安装完成!\n\n已安装到:\n" + dest +
                 "\n\n桌面已创建快捷方式,程序正在启动。\n浏览器将自动打开 http://127.0.0.1:5050";
-            System.Windows.Forms.MessageBox.Show(msg, "板检数据核验 Agent",
+            System.Windows.Forms.MessageBox.Show(msg, "板检数据核验工具",
                 System.Windows.Forms.MessageBoxButtons.OK,
                 System.Windows.Forms.MessageBoxIcon.Information);
             return 0;
         }
         catch (Exception ex)
         {
-            System.Windows.Forms.MessageBox.Show("安装失败:\n" + ex.Message, "板检数据核验 Agent",
+            System.Windows.Forms.MessageBox.Show("安装失败:\n" + ex.Message, "板检数据核验工具",
                 System.Windows.Forms.MessageBoxButtons.OK,
                 System.Windows.Forms.MessageBoxIcon.Error);
             return 1;

@@ -1,4 +1,4 @@
-// 板检数据核验 Agent - 前端逻辑
+// 板检数据核验工具 - 前端逻辑
 
 let state = {
   deviceCode: null,
@@ -170,7 +170,11 @@ async function uploadRaw() {
     state.rawCount = (data.raw_files || []).length;
     state.rawFiles = data.raw_files || [];
     status.className = 'status ok';
-    status.textContent = `已上传 ${data.count} 个文件,共 ${state.rawCount} 个`;
+    const skipped = data.skipped || [];
+    const skipText = skipped.length
+      ? `,跳过 ${skipped.length} 个:${skipped.map((s) => `${s.name}(${s.reason})`).join('; ')}`
+      : '';
+    status.textContent = `已上传 ${data.count} 个文件,共 ${state.rawCount} 个${skipText}`;
     document.getElementById('step-raw').classList.add('completed');
     renderRawList();
     refreshVerifyButton();
@@ -200,7 +204,11 @@ async function uploadPlatform() {
     state.platformCount = (data.platform_files || []).length;
     state.platformFiles = data.platform_files || [];
     status.className = 'status ok';
-    status.textContent = `已上传 ${data.count} 个文件,共 ${state.platformCount} 个`;
+    const skipped = data.skipped || [];
+    const skipText = skipped.length
+      ? `,跳过 ${skipped.length} 个:${skipped.map((s) => `${s.name}(${s.reason})`).join('; ')}`
+      : '';
+    status.textContent = `已上传 ${data.count} 个文件,共 ${state.platformCount} 个${skipText}`;
     document.getElementById('step-platform').classList.add('completed');
     renderPlatformList();
     refreshVerifyButton();

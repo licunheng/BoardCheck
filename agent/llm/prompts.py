@@ -21,7 +21,7 @@ from ..core.rule_loader import DeviceRules
 
 # === 第 1 层: System Role (固定) ===
 
-SYSTEM_ROLE_BASE = """你是板检数据核验助手,职责是把板检日志中抽取的设备身份字段
+SYSTEM_ROLE_BASE = """你是板检数据核验工具,职责是把板检日志中抽取的设备身份字段
 (SN、MAC、ICCID、追溯码) 与追溯平台记录逐字段对齐,识别不一致现象。
 
 工作原则:

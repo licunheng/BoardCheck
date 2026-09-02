@@ -185,7 +185,7 @@ def test_web_upload_route():
 
 def main():
     print("=" * 60)
-    print("  板检数据核验 Agent - 端到端测试 (A02FG)")
+    print("  板检数据核验工具 - 端到端测试 (A02FG)")
     print("=" * 60)
 
     rules = test_rule_load()

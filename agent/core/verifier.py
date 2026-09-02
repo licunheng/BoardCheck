@@ -263,8 +263,8 @@ def run_verification(
         summary=summary,
         raw_records=raw_records,
         output_dir=output_dir,
-        raw_file=raw_paths[0],
-        platform_csv=platform_paths[0],
+        raw_files=list(raw_paths),
+        platform_csvs=list(platform_paths),
         review_meta=llm_meta,
         quality_report=quality_report,
     )
@@ -334,10 +334,21 @@ def _preprocess_raw_files(
     file_type: Optional[str] = None
     total_input = 0
 
-    for p in paths:
+    for i, p in enumerate(paths):
         pp = preprocess_raw_file(p, rules)
         file_type = file_type or pp.file_type
         total_input += pp.total_input_lines
+        logger.info(
+            "preprocess[%d/%d] type=%s name=%s exists=%s size=%s input=%d kept=%d",
+            i + 1,
+            len(paths),
+            pp.file_type,
+            p.name,
+            p.exists(),
+            p.stat().st_size if p.exists() else 0,
+            pp.total_input_lines,
+            pp.total_kept_lines,
+        )
         if pp.file_type == "text_log":
             merged_lines.extend(pp.kept_lines)
         else:
@@ -380,8 +391,17 @@ def _extract_text_logs_per_file(
     total_kept = 0
     line_offset = 0  # 累计的「保留行」偏移,用于把 per-file source_line 映射到全局
 
-    for path in paths:
+    for i, path in enumerate(paths):
         pre = preprocess_raw_file(path, rules)
+        logger.info(
+            "extract_text[%d/%d] file=%s type=%s input=%d kept=%d",
+            i + 1,
+            len(paths),
+            path.name,
+            pre.file_type,
+            pre.total_input_lines,
+            pre.total_kept_lines,
+        )
         if pre.file_type != "text_log":
             # SQLite/CSV 路径在主流程的 elif 分支处理;此处只处理文本日志
             total_input += pre.total_input_lines
@@ -389,6 +409,11 @@ def _extract_text_logs_per_file(
             continue
 
         recs = extract_from_text_log(pre.kept_lines, rules)
+        logger.info(
+            "  → 从 %s 抽取到 %d 条 DeviceRecord",
+            path.name,
+            len(recs),
+        )
 
         # 调整 source_line 为全局索引,与 merged_kept_lines 对齐
         # (trace_response_time 仍保留原 HH:MM:SS;LLM 上下文查找走 source_line 索引)

@@ -28,12 +28,15 @@ def generate_all_reports(
     summary: Dict[str, int],
     raw_records: List[DeviceRecord],
     output_dir: Path,
-    raw_file: Path,
-    platform_csv: Path,
+    raw_files: List[Path],
+    platform_csvs: List[Path],
     review_meta: Dict[str, Any] | None = None,
     quality_report: Dict[str, Any] | None = None,
 ) -> Dict[str, Path]:
-    """生成三份报告,返回各自的输出路径。"""
+    """生成三份报告,返回各自的输出路径。
+
+    raw_files / platform_csvs:本次核验使用的所有原始日志与平台表文件(可能多个)。
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -47,8 +50,8 @@ def generate_all_reports(
         rows,
         summary,
         rules,
-        raw_file,
-        platform_csv,
+        raw_files,
+        platform_csvs,
         md_path,
         review_meta=review_meta,
         quality_report=quality_report,
@@ -223,8 +226,8 @@ def generate_md(
     rows: List[ComparisonRow],
     summary: Dict[str, int],
     rules: DeviceRules,
-    raw_file: Path,
-    platform_csv: Path,
+    raw_files: List[Path],
+    platform_csvs: List[Path],
     output: Path,
     review_meta: Dict[str, Any] | None = None,
     quality_report: Dict[str, Any] | None = None,
@@ -232,16 +235,20 @@ def generate_md(
     """生成 AI 分析报告的 md 文件。
 
     采用"自然语言描述现象"的风格,不做预设错误分类。
+    raw_files / platform_csvs:本次核验涉及的所有原始日志与平台表(可能多个)。
     """
     is_4g = rules.is_4g
+
+    raw_names = "、".join(p.name for p in raw_files) if raw_files else "(无)"
+    plat_names = "、".join(p.name for p in platform_csvs) if platform_csvs else "(无)"
 
     lines: List[str] = []
     lines.append(f"# {rules.display_name} 板检数据核验分析报告")
     lines.append("")
     lines.append(f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"> 设备型号: `{rules.device_code}` ({'4G 设备' if is_4g else '非 4G 设备'})")
-    lines.append(f"> 原始数据: `{raw_file.name}`")
-    lines.append(f"> 平台数据: `{platform_csv.name}`")
+    lines.append(f"> 原始数据 ({len(raw_files)} 个): {raw_names}")
+    lines.append(f"> 平台数据 ({len(platform_csvs)} 个): {plat_names}")
     lines.append("")
 
     # 一、总体统计
@@ -379,7 +386,7 @@ def generate_md(
     # 五、附录
     lines.append("## 五、附录")
     lines.append("")
-    lines.append('- 本报告由"板检数据核验 Agent"自动生成')
+    lines.append('- 本报告由"板检数据核验工具"自动生成')
     lines.append(f"- 设备规则版本: {rules.version}")
     lines.append("- 详细对比数据见同目录下 xlsx 文件")
     lines.append("- 可直接重传的数据见同目录下 csv 文件")

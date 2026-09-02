@@ -1,4 +1,4 @@
-# 板检数据核验 Agent
+# 板检数据核验工具
 
 > **一键核验板检日志与追溯平台数据,产出 3 份报告,主动拦截 SN↔追溯码错位 Bug**
 
@@ -36,7 +36,7 @@
 
 ### 1. 双击运行
 
-下载 `板检数据核验Agent.exe`,双击即可。浏览器会自动打开 http://127.0.0.1:5050
+下载 `板检数据核验工具.exe`,双击即可。浏览器会自动打开 http://127.0.0.1:5050
 
 ### 2. 四步操作
 
@@ -60,10 +60,10 @@
 
 ```bash
 # 规则自检
-板检数据核验Agent.exe --device A02FG --rule-check
+板检数据核验工具.exe --device A02FG --rule-check
 
 # 命令行核验(无需 UI)
-板检数据核验Agent.exe --device A02FG ^
+板检数据核验工具.exe --device A02FG ^
   --raw-log "板检日志.txt" ^
   --platform-csv "平台导出.csv" ^
   --output-dir "./output"
@@ -173,7 +173,7 @@ cd agent/devices/<DEVICE_CODE>
 python -m agent --device <DEVICE_CODE> --rule-check
 
 # EXE 模式
-板检数据核验Agent.exe --device <DEVICE_CODE> --rule-check
+板检数据核验工具.exe --device <DEVICE_CODE> --rule-check
 ```
 
 通过条件:
@@ -231,7 +231,7 @@ python3 tests/test_e2e.py
 
 ```bash
 python3 build.py
-# 产物: dist/板检数据核验Agent.exe (~15MB)
+# 产物: dist/板检数据核验工具.exe (~15MB)
 ```
 
 ---

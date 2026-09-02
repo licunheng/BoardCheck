@@ -5,7 +5,7 @@
     python3 build.py
 
 输出:
-    dist/板检数据核验Agent.exe (~50MB)
+    dist/板检数据核验工具.exe (~50MB)
 
 注意: PyInstaller 不支持中文 exe 名称时会报错,这里用 ASCII 名称。
 """
@@ -45,7 +45,7 @@ def main():
 
     # 重命名为中文(可选)
     produced = OUTPUT_DIR / ("agent_project.exe" if sys.platform == "win32" else "agent_project")
-    final_name = OUTPUT_DIR / "板检数据核验Agent.exe"
+    final_name = OUTPUT_DIR / "板检数据核验工具.exe"
     if produced.exists() and produced != final_name:
         try:
             produced.rename(final_name)

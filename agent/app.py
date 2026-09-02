@@ -1,4 +1,4 @@
-"""Flask Web UI - 板检数据核验 Agent。
+"""Flask Web UI - 板检数据核验工具。
 
 提供轻量级按钮界面:
 1. 导入板检数据 (txt / db,支持多文件)
@@ -21,7 +21,7 @@ import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
@@ -133,6 +133,33 @@ def create_app() -> Flask:
 
     # === 上传(支持多文件) ===
 
+    # raw 槽位接受:文本日志(txt/log/md)+ SQLite 数据库
+    # platform 槽位接受:CSV / Excel
+    _RAW_ACCEPT_EXTS = {".txt", ".log", ".md", ".db", ".sqlite", ".sqlite3"}
+    _PLATFORM_ACCEPT_EXTS = {".csv", ".xls", ".xlsx"}
+
+    def _split_files_by_ext(
+        filelist: List, accept_exts: set
+    ) -> Tuple[List, List[Dict[str, str]]]:
+        """按扩展名把上传文件拆成「保留」与「跳过」,并把跳过原因返回给前端。"""
+        kept: List = []
+        skipped: List[Dict[str, str]] = []
+        for f in filelist:
+            if not f or not f.filename:
+                skipped.append({"name": "<empty>", "reason": "filename 为空"})
+                continue
+            ext = Path(f.filename).suffix.lower()
+            if ext in accept_exts:
+                kept.append(f)
+            else:
+                skipped.append(
+                    {
+                        "name": Path(f.filename).name,
+                        "reason": f"扩展名 {ext!r} 不允许(本槽位仅接受 {sorted(accept_exts)})",
+                    }
+                )
+        return kept, skipped
+
     def _saved_files() -> List:
         """从请求中取出 files(多文件)或 file(单文件),统一为列表。"""
         files = request.files.getlist("files")
@@ -150,6 +177,20 @@ def create_app() -> Flask:
             return jsonify(error="必须指定 device_code"), 400
         if not device_exists(device_code):
             return jsonify(error=f"设备 {device_code!r} 不存在"), 404
+
+        files, skipped = _split_files_by_ext(files, _RAW_ACCEPT_EXTS)
+        if not files:
+            return (
+                jsonify(
+                    error="未保存任何有效文件",
+                    skipped=skipped,
+                    accept_exts=sorted(_RAW_ACCEPT_EXTS),
+                ),
+                400,
+            )
+        if skipped:
+            for s in skipped:
+                logger.info("raw 上传跳过: name=%s reason=%s", s["name"], s["reason"])
 
         upload_dir = Path(app.config["UPLOAD_DIR"])
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -176,6 +217,7 @@ def create_app() -> Flask:
         return jsonify(
             ok=True,
             count=len(saved_paths),
+            skipped=skipped,
             raw_files=state["raw_files"],
             device_code=device_code,
         )
@@ -185,6 +227,20 @@ def create_app() -> Flask:
         files = _saved_files()
         if not files:
             return jsonify(error="未提供文件"), 400
+
+        files, skipped = _split_files_by_ext(files, _PLATFORM_ACCEPT_EXTS)
+        if not files:
+            return (
+                jsonify(
+                    error="未保存任何有效文件",
+                    skipped=skipped,
+                    accept_exts=sorted(_PLATFORM_ACCEPT_EXTS),
+                ),
+                400,
+            )
+        if skipped:
+            for s in skipped:
+                logger.info("platform 上传跳过: name=%s reason=%s", s["name"], s["reason"])
 
         upload_dir = Path(app.config["UPLOAD_DIR"])
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -206,7 +262,12 @@ def create_app() -> Flask:
 
         state["platform_paths"].extend(saved_paths)
         state["platform_files"].extend(meta)
-        return jsonify(ok=True, count=len(saved_paths), platform_files=state["platform_files"])
+        return jsonify(
+            ok=True,
+            count=len(saved_paths),
+            skipped=skipped,
+            platform_files=state["platform_files"],
+        )
 
     # === 上传删除(板检记录 / 平台记录均可删) ===
 
@@ -354,6 +415,36 @@ def create_app() -> Flask:
             platform_files=state["platform_files"],
             last_result=state["last_result"],
             last_error=state["last_error"],
+        )
+
+    @app.route("/api/diag")
+    def api_diag():
+        """诊断接口:返回服务器侧每个文件的具体路径、是否可读、字节数、修改时间。
+
+        用于排查「只核验了一个文件」「明明上传 3 个服务端只有 1 个」这类问题。
+        """
+        return jsonify(
+            device_code=state["device_code"],
+            raw_files=[
+                {
+                    "path": str(p),
+                    "name": p.name,
+                    "exists": p.exists(),
+                    "size": p.stat().st_size if p.exists() else 0,
+                    "mtime": p.stat().st_mtime if p.exists() else None,
+                }
+                for p in state["raw_paths"]
+            ],
+            platform_files=[
+                {
+                    "path": str(p),
+                    "name": p.name,
+                    "exists": p.exists(),
+                    "size": p.stat().st_size if p.exists() else 0,
+                    "mtime": p.stat().st_mtime if p.exists() else None,
+                }
+                for p in state["platform_paths"]
+            ],
         )
 
     # === 存储设置 ===
@@ -578,7 +669,7 @@ def start_web_ui(host: str = "127.0.0.1", port: int = 5050, open_browser: bool =
 
     url = f"http://{host}:{port}"
     print("=" * 60)
-    print(f"  板检数据核验 Agent 已启动")
+    print(f"  板检数据核验工具 已启动")
     print(f"  访问地址: {url}")
     print(f"  设备目录: {Path(__file__).parent / 'devices'}")
     print(f"  上传目录: {upload_dir}")

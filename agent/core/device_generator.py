@@ -339,7 +339,7 @@ def _report_derived_llm(client, device_code, sample_log, sample_csv, result: Dic
 
 # === 阶段 B: 字段规格(结构化) ===
 
-_SPEC_SYSTEM = """你是板检数据核验 Agent 的设备字段规格设计专家。基于给定的「形态分析」,产出一份结构化的字段抽取规格,严格输出 JSON。
+_SPEC_SYSTEM = """你是板检数据核验工具的设备字段规格设计专家。基于给定的「形态分析」,产出一份结构化的字段抽取规格,严格输出 JSON。
 
 字段约定(通用):
 - sn: 设备序列号(= 平台里的「设备编号」,物理稳定,每台唯一)
@@ -438,7 +438,7 @@ def _build_spec_user(device_code, description, sample_log, sample_csv, is_4g_hin
 
 # === 调用② 生成配置 ===
 
-_GENERATE_SYSTEM = """你是板检数据核验 Agent 的设备配置生成器。请根据给定的结构分析结果,
+_GENERATE_SYSTEM = """你是板检数据核验工具的设备配置生成器。请根据给定的结构分析结果,
 参照 A02FG 模板,产出与 A02FG 同构的四件套配置。只输出一个 JSON 对象,包含四个键:
 - device_json: 对应 device.json
 - filter_rules_json: 对应 filter_rules.json

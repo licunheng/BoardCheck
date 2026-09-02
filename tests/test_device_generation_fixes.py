@@ -533,6 +533,152 @@ def test_call_conflict_review_returns_reexamine():
     assert a2 is None and r2 is None
 
 
+def test_extract_text_logs_per_file_sums_records_across_files():
+    """多文件抽取:一起抽的记录数 == 每个文件单独抽的记录数之和。
+
+    修复「只核验一个日志」类问题的核心回归测试 —— 即使 raw_paths=[f1, f2, ...]
+    在一次性抽与分别抽时,记录总和必须一致。
+    """
+    from agent.core.verifier import _extract_text_logs_per_file
+
+    rules = DeviceRules.load("A02SG")
+    log_template = (
+        "00:00:10 000 | COM3:发:568121440200"
+        "FA000001400001240260820{TAG:013X}"
+        "AABBCCDDEEFF11223344556677889900\n"
+        "AABBCCDDEEFF11223344556677889900\n"
+        "AABBCCDDEEFF11223344556677889900\n"
+        "AABBCCDDEEFF112233445566\n"
+        "00D0A\n"
+        "00:00:20 000 | COM3:收mac:{MAC:012X}\n"
+        "00:00:30 000 | COM3:追溯码:{TRACE}\n"
+        "00:00:35 000 | COM3:4G CCID:898604691026D0058123\n"
+        "00:00:40 000 | COM3:回复追溯码:{TRACE}\n"
+        "00:00:50 000 | COM3:板检结果:成功\n"
+    )
+    tmpdir = Path(tempfile.mkdtemp())
+    try:
+        files = []
+        for i in range(1, 4):  # 3 个独立文件
+            text = log_template.format(
+                TAG=i,
+                MAC=i + 0x100000000000,
+                TRACE=f"F068XYXI8F00000000000{i}",
+            )
+            p = tmpdir / f"day{i}.txt"
+            p.write_text(text, encoding="utf-8")
+            files.append(p)
+
+        per_file_total = sum(
+            len(_extract_text_logs_per_file([f], rules)[0]) for f in files
+        )
+        all_at_once = len(_extract_text_logs_per_file(files, rules)[0])
+        assert per_file_total == all_at_once == 3, (
+            f"分文件抽 {per_file_total} != 一起抽 {all_at_once},期望都是 3"
+        )
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_generate_md_lists_all_raw_files():
+    """reporter.md 头部应列出全部原始日志文件名(多文件上传不再只显示第一个)。"""
+    from agent.core.reporter import generate_md
+    from agent.core.comparator import ComparisonRow
+    from agent.core.extractor import DeviceRecord
+
+    class _StubRules:
+        device_code = "TST"
+        display_name = "TST 测试设备"
+        is_4g = False
+        version = "1"
+
+    raw1 = Path("/tmp/day1.txt")
+    raw2 = Path("/tmp/day2.txt")
+    raw3 = Path("/tmp/day3.txt")
+    plat1 = Path("/tmp/平台 5月.csv")
+    plat2 = Path("/tmp/平台 6月.csv")
+
+    out = Path(tempfile.mkdtemp()) / "report.md"
+    generate_md(
+        rows=[],
+        summary={},
+        rules=_StubRules(),
+        raw_files=[raw1, raw2, raw3],
+        platform_csvs=[plat1, plat2],
+        output=out,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "day1.txt" in text and "day2.txt" in text and "day3.txt" in text, (
+        f"md 应列出全部 3 个原始日志,实际:\n{text[:500]}"
+    )
+    assert "平台 5月.csv" in text and "平台 6月.csv" in text, (
+        f"md 应列出全部 2 个平台表,实际:\n{text[:500]}"
+    )
+    assert "3 个" in text, f"md 应标注数量 (3 个),实际:\n{text[:300]}"
+
+
+def test_api_split_files_by_ext_rejects_wrong_extension():
+    """上传 raw 槽位混入 .csv 时,只跳过错的文件,正确文件照常接收。"""
+    from agent.app import create_app
+
+    # 全部是 .csv(应被全部拒)
+    app = create_app()
+    client = app.test_client()
+    import io
+
+    bad = (io.BytesIO(b"a,b\n1,2\n"), "wrong.csv")
+    r = client.post(
+        "/api/upload/raw",
+        data={"files": bad, "device_code": "A02FG"},
+        content_type="multipart/form-data",
+    )
+    assert r.status_code == 400, r.json
+    assert r.json["skipped"]
+    assert r.json["skipped"][0]["reason"].startswith("扩展名")
+
+    # 混合格式:txt 接收,csv 跳过(隔离 app 实例,保证不被前一次上传污染)
+    app2 = create_app()
+    client2 = app2.test_client()
+    ok = (io.BytesIO(b"test data"), "good.txt")
+    r2 = client2.post(
+        "/api/upload/raw",
+        data={"files": bad, "files": ok, "device_code": "A02FG"},
+        content_type="multipart/form-data",
+    )
+    assert r2.status_code == 200, r2.json
+    assert r2.json["count"] == 1
+    assert r2.json["raw_files"][0]["filename"] == "good.txt"
+
+
+def test_api_diag_returns_per_file_metadata():
+    """GET /api/diag 应返回每个上传文件的 path/exists/size/mtime,用于排查漏文件。"""
+    from agent.app import create_app
+    import io
+
+    app = create_app()
+    client = app.test_client()
+
+    raw = (io.BytesIO(b"test data" * 100), "Info.txt")
+    plat = (io.BytesIO(b"col1\nval1\n"), "platform.csv")
+    client.post(
+        "/api/upload/raw",
+        data={"files": raw, "device_code": "A02FG"},
+        content_type="multipart/form-data",
+    )
+    client.post(
+        "/api/upload/platform",
+        data={"files": plat},
+        content_type="multipart/form-data",
+    )
+    r = client.get("/api/diag")
+    assert r.status_code == 200
+    data = r.json
+    assert len(data["raw_files"]) == 1
+    assert data["raw_files"][0]["name"].endswith("Info.txt")
+    assert data["raw_files"][0]["exists"] is True
+    assert data["raw_files"][0]["size"] > 0
+
+
 if __name__ == "__main__":
     test_anchor_without_group_uses_regex_group()
     print("✓ 抽取器:锚点无捕获组时改用 regex 捕获组,不再返回 COM口/字段名")
@@ -566,4 +712,12 @@ if __name__ == "__main__":
     print("✓ llm_review:CONFLICT_REVIEW_SCHEMA 含 need_reexamine 可选字段")
     test_call_conflict_review_returns_reexamine()
     print("✓ llm_review:_call_conflict_review 返回 (assignment, reexamine)")
+    test_extract_text_logs_per_file_sums_records_across_files()
+    print("✓ 多文件:一次性抽 vs 分文件抽记录数一致")
+    test_generate_md_lists_all_raw_files()
+    print("✓ reporter:md 头部列出全部原始+平台文件名")
+    test_api_split_files_by_ext_rejects_wrong_extension()
+    print("✓ /api/upload:扩展名校验,错误文件跳过而非整体拒绝")
+    test_api_diag_returns_per_file_metadata()
+    print("✓ /api/diag:返回每个文件的 path/exists/size/mtime")
     print("全部通过")
