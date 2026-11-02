@@ -24,8 +24,10 @@ A02FG/
 Device_doc/
 output_config/
 00readme/
+00inbox/
 trace/
 sample_data/
+安装包.zip
 
 # === Claude Code 项目目录 ===
 .claude/

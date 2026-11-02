@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Flask Web UI - 板检数据核验工具。
 
 提供轻量级按钮界面:
@@ -453,6 +454,57 @@ def create_app() -> Flask:
     def api_storage():
         upload_dir, output_dir = get_storage_dirs()
         return jsonify(upload_dir=str(upload_dir), output_dir=str(output_dir))
+
+    # === 统计接口(供 UI 首页 4 个数字使用) ===
+
+    def _count_monthly_batches(output_dir: Path) -> int:
+        """统计本月(自然月)已完成的核验批次(按时间戳去重)。"""
+        if not output_dir.is_dir():
+            return 0
+        this_month = datetime.now().strftime("%Y%m")
+        seen: set = set()
+        for p in output_dir.iterdir():
+            if not p.is_file():
+                continue
+            m = _HISTORY_RE.search(p.name)
+            if not m:
+                continue
+            ts = m.group(1)  # YYYYMMDD_HHMMSS
+            if ts.startswith(this_month):
+                seen.add(ts)
+        return len(seen)
+
+    def _count_llm_review_batches(output_dir: Path) -> int:
+        """统计启用过 LLM 复核的批次(扫描 MD 报告,关键字 'LLM 复核')。"""
+        if not output_dir.is_dir():
+            return 0
+        seen: set = set()
+        for p in output_dir.iterdir():
+            if not p.is_file() or p.suffix != ".md":
+                continue
+            try:
+                txt = p.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            if "LLM 复核" not in txt and "LLM" not in txt:
+                continue
+            m = _HISTORY_RE.search(p.name)
+            if m:
+                seen.add(m.group(1))
+        return len(seen)
+
+    @app.route("/api/stats/summary")
+    def api_stats_summary():
+        output_dir = Path(app.config["OUTPUT_DIR"])
+        try:
+            device_count = len(list_supported_devices())
+        except Exception:
+            device_count = 0
+        return jsonify(
+            device_count=device_count,
+            monthly_batches=_count_monthly_batches(output_dir),
+            llm_review_batches=_count_llm_review_batches(output_dir),
+        )
 
     @app.route("/api/storage", methods=["POST"])
     def api_save_storage():

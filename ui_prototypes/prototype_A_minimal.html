@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板检数据核验 · A · 极简卡片</title>
+<style>
+  :root{
+    --bg:#f7f8fb; --surface:#ffffff; --ink:#0f172a; --ink-2:#334155; --ink-3:#94a3b8;
+    --line:#e8ecf3; --line-2:#f1f4f9;
+    --accent:#2563eb; --accent-2:#1d4ed8; --accent-soft:rgba(37,99,235,.08);
+    --ok:#10b981; --warn:#f59e0b; --err:#ef4444;
+    --shadow:0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.04);
+    --shadow-lg:0 10px 30px rgba(15,23,42,.08);
+    --radius:14px; --radius-sm:8px;
+    --t:.32s cubic-bezier(.22,.61,.36,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{font-family:"Inter","SF Pro Display",-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased;overflow:hidden}
+  a{color:inherit;text-decoration:none}
+
+  /* layout */
+  .app{display:grid;grid-template-columns:240px 1fr;height:100vh}
+  .sidebar{background:var(--surface);border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:4px}
+  .brand{display:flex;align-items:center;gap:10px;padding:8px 12px 18px;font-weight:600;font-size:15px;letter-spacing:-.01em}
+  .brand-mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#2563eb);position:relative;box-shadow:0 4px 12px rgba(37,99,235,.3)}
+  .brand-mark::after{content:"";position:absolute;inset:6px;border:2px solid #fff;border-radius:3px;border-top:0;border-right:0;transform:rotate(-15deg)}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--ink-2);font-size:14px;cursor:pointer;position:relative;transition:background var(--t),color var(--t)}
+  .nav-item:hover{background:var(--line-2);color:var(--ink)}
+  .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:500}
+  .nav-item svg{width:18px;height:18px;flex-shrink:0;stroke-width:1.75}
+  .nav-indicator{position:absolute;left:-14px;top:50%;transform:translateY(-50%);width:3px;height:20px;background:var(--accent);border-radius:0 3px 3px 0;transition:top var(--t)}
+  .nav-section{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:14px 12px 6px;font-weight:600}
+  .sidebar-foot{margin-top:auto;padding:14px 12px;font-size:11px;color:var(--ink-3)}
+
+  /* content */
+  .main{overflow-y:auto;padding:32px 40px 60px}
+  .page{display:none;animation:pageIn var(--t)}
+  .page.active{display:block}
+  @keyframes pageIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .page-head{margin-bottom:28px}
+  .page-title{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0 0 6px}
+  .page-sub{color:var(--ink-3);font-size:14px}
+
+  /* stat cards */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:28px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);transition:transform var(--t),box-shadow var(--t)}
+  .stat:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+  .stat-label{font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:10px}
+  .stat-value{font-size:32px;font-weight:700;letter-spacing:-.02em;line-height:1;display:flex;align-items:baseline;gap:6px}
+  .stat-value .unit{font-size:14px;color:var(--ink-3);font-weight:500}
+  .stat-delta{font-size:12px;color:var(--ink-3);margin-top:8px;display:flex;align-items:center;gap:4px}
+  .stat-delta.up{color:var(--ok)} .stat-delta.down{color:var(--err)}
+
+  /* card */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:16px}
+  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .card-title{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .card-action{font-size:13px;color:var(--accent);cursor:pointer}
+
+  /* list rows */
+  .row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:10px;transition:background var(--t);cursor:pointer}
+  .row:hover{background:var(--line-2)}
+  .row+.row{border-top:1px solid var(--line-2)}
+  .row-icon{width:36px;height:36px;border-radius:10px;background:var(--line-2);display:flex;align-items:center;justify-content:center;color:var(--ink-2);flex-shrink:0;font-size:14px;font-weight:600}
+  .row-icon.blue{background:var(--accent-soft);color:var(--accent)}
+  .row-icon.ok{background:rgba(16,185,129,.1);color:var(--ok)}
+  .row-icon.warn{background:rgba(245,158,11,.1);color:var(--warn)}
+  .row-icon.err{background:rgba(239,68,68,.1);color:var(--err)}
+  .row-main{flex:1;min-width:0}
+  .row-title{font-size:14px;font-weight:500;color:var(--ink);margin-bottom:2px}
+  .row-sub{font-size:12px;color:var(--ink-3)}
+  .row-meta{font-size:12px;color:var(--ink-3);text-align:right;flex-shrink:0}
+
+  /* buttons */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);font-family:inherit;transition:all var(--t)}
+  .btn:hover{border-color:var(--ink-3);color:var(--ink)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.25)}
+  .btn.primary:hover{background:var(--accent-2);border-color:var(--accent-2);box-shadow:0 4px 14px rgba(37,99,235,.35);transform:translateY(-1px)}
+  .btn.ghost{background:transparent;border-color:transparent}
+  .btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+
+  /* form controls */
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .field-label{font-size:12px;color:var(--ink-3);font-weight:500}
+  .field input,.field select,.field textarea{font-family:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;transition:border-color var(--t),box-shadow var(--t);outline:none}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .field textarea{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;resize:vertical;min-height:80px}
+
+  /* verify flow */
+  .stepper{display:flex;align-items:center;margin-bottom:28px;padding:6px 0;overflow-x:auto}
+  .step{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .step-circle{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink-3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;transition:all var(--t)}
+  .step.active .step-circle{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 4px var(--accent-soft);transform:scale(1.05)}
+  .step.done .step-circle{background:var(--ok);border-color:var(--ok);color:#fff}
+  .step-label{font-size:13px;color:var(--ink-3);font-weight:500}
+  .step.active .step-label{color:var(--ink);font-weight:600}
+  .step-line{flex:1;height:1.5px;background:var(--line);margin:0 12px;min-width:24px;position:relative;overflow:hidden}
+  .step-line.done{background:var(--ok)}
+
+  /* upload zone */
+  .drop{border:2px dashed var(--line);border-radius:var(--radius);padding:32px;text-align:center;background:var(--surface);transition:all var(--t);cursor:pointer}
+  .drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+  .drop-icon{width:48px;height:48px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:22px}
+  .drop-title{font-size:14px;font-weight:500;margin-bottom:4px}
+  .drop-sub{font-size:12px;color:var(--ink-3)}
+  .uploaded{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+  .uploaded-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--line-2);border-radius:8px;font-size:13px}
+  .uploaded-item .name{flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .uploaded-item .size{color:var(--ink-3);font-size:11px}
+  .uploaded-item button{padding:2px 8px;border-radius:4px;border:0;background:transparent;color:var(--err);cursor:pointer;font-size:12px}
+
+  /* progress */
+  .progress-card{padding:32px;text-align:center}
+  .ring{width:96px;height:96px;margin:0 auto 20px;position:relative}
+  .ring svg{transform:rotate(-90deg)}
+  .ring circle{fill:none;stroke-width:8}
+  .ring .bg{stroke:var(--line)}
+  .ring .fg{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1)}
+  .ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:22px;font-weight:700;letter-spacing:-.02em}
+  .ring-sub{font-size:10px;color:var(--ink-3);font-weight:500;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+  .progress-msg{font-size:14px;color:var(--ink-2);margin-bottom:6px}
+  .progress-elapsed{font-size:12px;color:var(--ink-3)}
+
+  /* results */
+  .results-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+  .result-tile{padding:18px;border-radius:var(--radius-sm);text-align:center;background:var(--line-2);position:relative;overflow:hidden;transition:transform var(--t)}
+  .result-tile:hover{transform:translateY(-2px)}
+  .result-tile .n{font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1}
+  .result-tile .l{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-top:6px}
+  .result-tile.ok{background:rgba(16,185,129,.1);color:var(--ok)}
+  .result-tile.warn{background:rgba(245,158,11,.1);color:var(--warn)}
+  .result-tile.err{background:rgba(239,68,68,.1);color:var(--err)}
+  .downloads{display:flex;flex-direction:column;gap:8px}
+  .download-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);transition:border-color var(--t),background var(--t)}
+  .download-row:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .download-icon{width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+  .download-row .name{flex:1;font-size:13px}
+  .download-row a{font-size:13px;color:var(--accent);font-weight:500}
+
+  /* device cards */
+  .device-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+  .device-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;cursor:pointer;transition:all var(--t);position:relative}
+  .device-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+  .device-card .badge{position:absolute;top:14px;right:14px;font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(37,99,235,.1);color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .device-code{font-size:18px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .device-name{font-size:13px;color:var(--ink-3);margin-bottom:14px}
+  .device-stats{display:flex;gap:12px;font-size:12px;color:var(--ink-3);padding-top:12px;border-top:1px solid var(--line-2)}
+
+  /* toast */
+  .toast-stack{position:fixed;top:24px;right:24px;display:flex;flex-direction:column;gap:8px;z-index:999;pointer-events:none}
+  .toast{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 18px;box-shadow:var(--shadow-lg);display:flex;align-items:center;gap:10px;min-width:240px;animation:toastIn .4s cubic-bezier(.22,.61,.36,1);pointer-events:auto}
+  .toast.ok{border-left:3px solid var(--ok)}
+  .toast.err{border-left:3px solid var(--err)}
+  .toast .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0}
+  .toast.err .dot{background:var(--err)}
+  .toast .msg{font-size:13px;flex:1}
+  @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+  /* badges */
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;background:var(--line-2);color:var(--ink-2);font-weight:500}
+  .tag.ok{background:rgba(16,185,129,.12);color:var(--ok)}
+  .tag.warn{background:rgba(245,158,11,.12);color:var(--warn)}
+  .tag.err{background:rgba(239,68,68,.12);color:var(--err)}
+
+  /* checkbox */
+  .check{display:flex;align-items:center;gap:8px;padding:10px 0;cursor:pointer;font-size:14px;color:var(--ink-2)}
+  .check input{appearance:none;width:18px;height:18px;border:1.5px solid var(--line);border-radius:5px;background:var(--surface);cursor:pointer;position:relative;transition:all var(--t)}
+  .check input:checked{background:var(--accent);border-color:var(--accent)}
+  .check input:checked::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+
+  /* tabs (settings) */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:20px}
+  .tab{padding:10px 16px;font-size:14px;color:var(--ink-3);cursor:pointer;border-bottom:2px solid transparent;transition:all var(--t)}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--accent);border-color:var(--accent);font-weight:500}
+
+  /* grid for fields */
+  .field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+
+  /* completion celebration */
+  .check-big{width:64px;height:64px;border-radius:50%;background:var(--ok);color:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:32px;animation:popIn .5s cubic-bezier(.34,1.56,.64,1)}
+  @keyframes popIn{0%{transform:scale(0);opacity:0}100%{transform:scale(1);opacity:1}}
+
+  /* utility */
+  .empty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:14px}
+  .divider{height:1px;background:var(--line);margin:20px 0;border:0}
+  .hidden{display:none!important}
+
+  @media(max-width:760px){.app{grid-template-columns:1fr}.sidebar{display:none}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      板检核验
+    </div>
+
+    <div class="nav-section">主流程</div>
+    <div class="nav-item active" data-route="home" onclick="nav('home')">
+      <span class="nav-indicator"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+      总览
+    </div>
+    <div class="nav-item" data-route="verify" onclick="nav('verify')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      数据核验
+    </div>
+    <div class="nav-item" data-route="history" onclick="nav('history')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      历史记录
+    </div>
+
+    <div class="nav-section">设备</div>
+    <div class="nav-item" data-route="devices" onclick="nav('devices')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+      设备管理
+    </div>
+    <div class="nav-item" data-route="generate" onclick="nav('generate')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4v16m8-8H4"/></svg>
+      新增设备
+    </div>
+
+    <div class="nav-section">系统</div>
+    <div class="nav-item" data-route="settings" onclick="nav('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      设置
+    </div>
+
+    <div class="sidebar-foot">
+      <div>v1.0 · 本地运行</div>
+      <div style="margin-top:4px;color:var(--ok);display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok)"></span>服务在线</div>
+    </div>
+  </aside>
+
+  <!-- main -->
+  <main class="main">
+
+    <!-- HOME -->
+    <section class="page active" id="page-home">
+      <div class="page-head">
+        <h1 class="page-title">总览</h1>
+        <div class="page-sub">板检数据核验工具运行状态与最近活动</div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">已配置设备</div>
+          <div class="stat-value" data-count="4">0</div>
+          <div class="stat-delta up">↑ 1 本周新增</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">本月核验批次</div>
+          <div class="stat-value" data-count="23">0</div>
+          <div class="stat-delta up">↑ 较上月 +18%</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">数据一致率</div>
+          <div class="stat-value"><span data-count="94.2">0</span><span class="unit">%</span></div>
+          <div class="stat-delta down">↓ 较上月 -2.1%</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">LLM 复核</div>
+          <div class="stat-value"><span data-count="3">0</span><span class="unit">次</span></div>
+          <div class="stat-delta" style="color:var(--ink-3)">最近 7 天</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">最近核验</div>
+          <div class="card-action" onclick="nav('history')">查看全部 →</div>
+        </div>
+        <div>
+          <div class="row" onclick="nav('verify')">
+            <div class="row-icon ok">✓</div>
+            <div class="row-main">
+              <div class="row-title">A02FG 批次 · 板检 vs 平台</div>
+              <div class="row-sub">2026-09-05 14:32 · 142 设备 · 一致 138, 不一致 4</div>
+            </div>
+            <div class="row-meta"><span class="tag ok">完成</span></div>
+          </div>
+          <div class="row">
+            <div class="row-icon warn">!</div>
+            <div class="row-main">
+              <div class="row-title">F16G 批次 · 板检 vs 平台</div>
+              <div class="row-sub">2026-09-04 09:15 · 86 设备 · 不一致 12 (LLM 已复核)</div>
+            </div>
+            <div class="row-meta"><span class="tag warn">已复核</span></div>
+          </div>
+          <div class="row">
+            <div class="row-icon err">×</div>
+            <div class="row-main">
+              <div class="row-title">FD01G 批次 · 失败</div>
+              <div class="row-sub">2026-09-03 16:48 · 正则编译错误 · 已自动修复并重试</div>
+            </div>
+            <div class="row-meta"><span class="tag err">错误</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">快速操作</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn primary" onclick="nav('verify')">开始核验 →</button>
+          <button class="btn" onclick="nav('devices')">管理设备</button>
+          <button class="btn" onclick="nav('generate')">新增设备配置</button>
+          <button class="btn" onclick="nav('settings')">系统设置</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VERIFY -->
+    <section class="page" id="page-verify">
+      <div class="page-head">
+        <h1 class="page-title">数据核验</h1>
+        <div class="page-sub">选择设备 → 上传板检日志 → 上传平台 CSV → 开始核验 → 下载报告</div>
+      </div>
+
+      <div class="stepper" id="stepper">
+        <div class="step active" data-step="0"><div class="step-circle">1</div><div class="step-label">选择设备</div></div>
+        <div class="step-line"></div>
+        <div class="step" data-step="1"><div class="step-circle">2</div><div class="step-label">板检日志</div></div>
+        <div class="step-line"></div>
+        <div class="step" data-step="2"><div class="step-circle">3</div><div class="step-label">平台 CSV</div></div>
+        <div class="step-line"></div>
+        <div class="step" data-step="3"><div class="step-circle">4</div><div class="step-label">核验选项</div></div>
+        <div class="step-line"></div>
+        <div class="step" data-step="4"><div class="step-circle">5</div><div class="step-label">结果</div></div>
+      </div>
+
+      <!-- step panels -->
+      <div class="card" data-panel="0">
+        <div class="card-title" style="margin-bottom:14px">选择设备型号</div>
+        <div class="field">
+          <select id="v-device">
+            <option value="">-- 请选择设备 --</option>
+            <option>A02FG · 4G 网关 · v3</option>
+            <option>F16G · 4G 网关 · v1</option>
+            <option>FD01G · 非 4G · v1</option>
+            <option>B01X · 4G 网关 · v2</option>
+          </select>
+        </div>
+        <div style="display:flex;justify-content:flex-end">
+          <button class="btn primary" onclick="goStep(1)">下一步</button>
+        </div>
+      </div>
+
+      <div class="card hidden" data-panel="1">
+        <div class="card-title" style="margin-bottom:6px">导入板检日志</div>
+        <div class="page-sub" style="margin-bottom:14px">.txt / .log / .db / .sqlite · 支持多文件</div>
+        <div class="drop" onclick="document.getElementById('raw-input').click()">
+          <div class="drop-icon">↑</div>
+          <div class="drop-title">点击或拖拽文件到此处</div>
+          <div class="drop-sub">支持 txt / log / md / db · sqlite</div>
+          <input type="file" id="raw-input" multiple accept=".txt,.log,.md,.db,.sqlite,.sqlite3" class="hidden">
+        </div>
+        <div id="raw-list" class="uploaded"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:18px">
+          <button class="btn" onclick="goStep(0)">← 上一步</button>
+          <button class="btn primary" onclick="goStep(2)">下一步</button>
+        </div>
+      </div>
+
+      <div class="card hidden" data-panel="2">
+        <div class="card-title" style="margin-bottom:6px">导入平台 CSV</div>
+        <div class="page-sub" style="margin-bottom:14px">从追溯平台导出的本批数据 · 支持多文件</div>
+        <div class="drop" onclick="document.getElementById('plat-input').click()">
+          <div class="drop-icon">↑</div>
+          <div class="drop-title">点击或拖拽文件到此处</div>
+          <div class="drop-sub">支持 csv / xls / xlsx</div>
+          <input type="file" id="plat-input" multiple accept=".csv,.xls,.xlsx" class="hidden">
+        </div>
+        <div id="plat-list" class="uploaded"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:18px">
+          <button class="btn" onclick="goStep(1)">← 上一步</button>
+          <button class="btn primary" onclick="goStep(3)">下一步</button>
+        </div>
+      </div>
+
+      <div class="card hidden" data-panel="3">
+        <div class="card-title" style="margin-bottom:14px">核验选项</div>
+        <label class="check">
+          <input type="checkbox" id="opt-review"> 启用 LLM 智能复核(需要已配置 API Key)
+        </label>
+        <div style="margin-left:26px;color:var(--ink-3);font-size:12px;margin-top:-4px;margin-bottom:10px">将对不一致记录与边界情况做二次判断</div>
+        <label class="check">
+          <input type="checkbox" id="opt-compare" checked> 不一致记录复核(较快)
+        </label>
+        <label class="check">
+          <input type="checkbox" id="opt-indep"> 独立抽取交叉验证(很慢)
+        </label>
+
+        <div style="display:flex;justify-content:space-between;margin-top:20px">
+          <button class="btn" onclick="goStep(2)">← 上一步</button>
+          <button class="btn primary" id="btn-go" onclick="startVerify()">开始核验 →</button>
+        </div>
+      </div>
+
+      <div class="card hidden" data-panel="4">
+        <div id="v-progress">
+          <div class="ring" id="v-ring">
+            <svg width="96" height="96">
+              <circle class="bg" cx="48" cy="48" r="42"/>
+              <circle class="fg" cx="48" cy="48" r="42" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+            </svg>
+            <div class="ring-label"><span id="v-pct">0</span>%<div class="ring-sub">核验中</div></div>
+          </div>
+          <div class="progress-msg" id="v-msg">任务已提交…</div>
+          <div class="progress-elapsed" id="v-elapsed">已耗时 0 秒</div>
+        </div>
+
+        <div id="v-result" class="hidden">
+          <div class="check-big">✓</div>
+          <div style="text-align:center;font-size:18px;font-weight:600;margin-bottom:4px">核验完成</div>
+          <div style="text-align:center;color:var(--ink-3);font-size:13px;margin-bottom:20px">耗时 1 分 28 秒 · 设备 A02FG</div>
+
+          <div class="results-grid">
+            <div class="result-tile"><div class="n" data-count="142">0</div><div class="l">总设备</div></div>
+            <div class="result-tile ok"><div class="n" data-count="138">0</div><div class="l">完全一致</div></div>
+            <div class="result-tile warn"><div class="n" data-count="3">0</div><div class="l">字段不一致</div></div>
+            <div class="result-tile err"><div class="n" data-count="1">0</div><div class="l">仅原始有</div></div>
+            <div class="result-tile err"><div class="n" data-count="0">0</div><div class="l">仅平台有</div></div>
+          </div>
+
+          <div class="card-title" style="margin:14px 0 10px">下载报告</div>
+          <div class="downloads">
+            <div class="download-row">
+              <div class="download-icon">XLS</div>
+              <div class="name">详细对比表.xlsx</div>
+              <a href="#">下载</a>
+            </div>
+            <div class="download-row">
+              <div class="download-icon">CSV</div>
+              <div class="name">重传数据.csv</div>
+              <a href="#">下载</a>
+            </div>
+            <div class="download-row">
+              <div class="download-icon">MD</div>
+              <div class="name">AI 分析报告.md</div>
+              <a href="#">下载</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="page" id="page-history">
+      <div class="page-head">
+        <h1 class="page-title">历史记录</h1>
+        <div class="page-sub">所有核验批次 · 按时间倒序 · 刷新不丢失</div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-bottom:18px">
+        <input type="text" placeholder="搜索设备代号…" style="flex:1;padding:9px 14px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;outline:none;background:var(--surface)">
+        <select style="padding:9px 14px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface);outline:none">
+          <option>全部设备</option><option>A02FG</option><option>F16G</option>
+        </select>
+      </div>
+
+      <div class="card" style="padding:0">
+        <div class="row">
+          <div class="row-icon ok">✓</div>
+          <div class="row-main">
+            <div class="row-title">A02FG · 142 设备 · 一致 138 / 不一致 4</div>
+            <div class="row-sub">2026-09-05 14:32:18 · 耗时 1 分 28 秒</div>
+          </div>
+          <div class="row-meta" style="display:flex;gap:6px">
+            <a class="tag" href="#">XLSX</a><a class="tag" href="#">CSV</a><a class="tag" href="#">MD</a>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-icon warn">!</div>
+          <div class="row-main">
+            <div class="row-title">F16G · 86 设备 · 一致 74 / 不一致 12(LLM 复核)</div>
+            <div class="row-sub">2026-09-04 09:15:42 · 耗时 8 分 12 秒</div>
+          </div>
+          <div class="row-meta" style="display:flex;gap:6px">
+            <a class="tag" href="#">XLSX</a><a class="tag" href="#">CSV</a><a class="tag" href="#">MD</a>
+          </div>
+        </div>
+        <div class="row">
+          <div class="row-icon ok">✓</div>
+          <div class="row-main">
+            <div class="row-title">FD01G · 56 设备 · 一致 55 / 不一致 1</div>
+            <div class="row-sub">2026-09-01 11:22:09 · 耗时 0 分 42 秒</div>
+          </div>
+          <div class="row-meta" style="display:flex;gap:6px">
+            <a class="tag" href="#">XLSX</a><a class="tag" href="#">CSV</a><a class="tag" href="#">MD</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DEVICES -->
+    <section class="page" id="page-devices">
+      <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <h1 class="page-title">设备管理</h1>
+          <div class="page-sub">查看、编辑已配置的设备规则</div>
+        </div>
+        <button class="btn primary" onclick="nav('generate')">+ 新增设备</button>
+      </div>
+
+      <div class="device-grid">
+        <div class="device-card">
+          <span class="badge">4G</span>
+          <div class="device-code">A02FG</div>
+          <div class="device-name">4G 网关 v3</div>
+          <div class="device-stats">
+            <span>142 用过</span><span>·</span><span>v3.0</span>
+          </div>
+        </div>
+        <div class="device-card">
+          <span class="badge">4G</span>
+          <div class="device-code">F16G</div>
+          <div class="device-name">4G 网关 v1</div>
+          <div class="device-stats">
+            <span>86 用过</span><span>·</span><span>v1.2</span>
+          </div>
+        </div>
+        <div class="device-card">
+          <div class="device-code">FD01G</div>
+          <div class="device-name">非 4G 设备 v1</div>
+          <div class="device-stats">
+            <span>56 用过</span><span>·</span><span>v1.0</span>
+          </div>
+        </div>
+        <div class="device-card">
+          <span class="badge">4G</span>
+          <div class="device-code">B01X</div>
+          <div class="device-name">4G 网关 v2</div>
+          <div class="device-stats">
+            <span>23 用过</span><span>·</span><span>v2.1</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GENERATE -->
+    <section class="page" id="page-generate">
+      <div class="page-head">
+        <h1 class="page-title">新增设备配置</h1>
+        <div class="page-sub">描述规则 → 调用大模型 → 自动生成四件套核验配置</div>
+      </div>
+
+      <div class="card">
+        <div class="field-grid">
+          <div class="field">
+            <div class="field-label">设备代号</div>
+            <input type="text" placeholder="B01X" id="g-code">
+          </div>
+          <div class="field">
+            <div class="field-label">是否 4G 设备</div>
+            <select id="g-4g"><option value="">自动推断</option><option value="true">是</option><option value="false">否</option></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">板检规则描述</div>
+          <textarea placeholder="字段格式、日志行模式、绑定关系、平台列名等"></textarea>
+        </div>
+        <div class="field">
+          <div class="field-label">板检日志样例(可选 · 强烈建议)</div>
+          <textarea placeholder="粘贴若干行真实板检日志…"></textarea>
+        </div>
+        <div class="field">
+          <div class="field-label">平台 CSV 样例(可选 · 含表头与 1~2 行)</div>
+          <textarea placeholder="追溯码,SN,MAC,4G信息"></textarea>
+        </div>
+        <label class="check"><input type="checkbox"> 覆盖已有同名配置</label>
+        <div style="display:flex;justify-content:flex-end;margin-top:14px;gap:10px;align-items:center">
+          <span id="g-status" class="tag" style="font-size:13px"></span>
+          <button class="btn primary" onclick="toast('配置生成中… 大约需要 30-60 秒','ok')">生成配置</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page" id="page-settings">
+      <div class="page-head">
+        <h1 class="page-title">设置</h1>
+        <div class="page-sub">LLM 配置 · 存储路径 · 复核策略</div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" onclick="setTab(0,this)">LLM 配置</div>
+        <div class="tab" onclick="setTab(1,this)">存储目录</div>
+        <div class="tab" onclick="setTab(2,this)">复核策略</div>
+      </div>
+
+      <div class="card" data-tab="0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <span class="tag ok">已配置</span><span style="font-size:13px;color:var(--ink-3)">尾号 …3a4f</span>
+        </div>
+        <div class="field-grid">
+          <div class="field"><div class="field-label">服务商</div><select><option>Anthropic Claude</option><option>OpenAI 兼容</option></select></div>
+          <div class="field"><div class="field-label">模型</div><input type="text" value="claude-3-5-sonnet-20241022"></div>
+          <div class="field"><div class="field-label">API Key</div><input type="password" placeholder="留空保持不变"></div>
+          <div class="field"><div class="field-label">接口地址</div><input type="text" placeholder="默认 https://api.anthropic.com/v1"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn primary">保存设置</button>
+          <button class="btn" onclick="toast('连接成功 · 0.42 秒','ok')">测试连接</button>
+        </div>
+      </div>
+
+      <div class="card hidden" data-tab="1">
+        <div class="field-grid">
+          <div class="field"><div class="field-label">上传目录</div><input type="text" value="D:/.../uploads"></div>
+          <div class="field"><div class="field-label">输出目录</div><input type="text" value="D:/.../outputs"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px">
+          <button class="btn primary">保存存储目录</button>
+        </div>
+      </div>
+
+      <div class="card hidden" data-tab="2">
+        <label class="check"><input type="checkbox"> 启用 LLM 智能复核</label>
+        <div style="margin-left:26px;margin-bottom:8px">
+          <label class="check"><input type="checkbox" checked> 不一致记录复核(较快)</label>
+          <label class="check"><input type="checkbox"> 独立抽取交叉验证(很慢)</label>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast-stack" id="toasts"></div>
+
+<script>
+// ===== routing =====
+function nav(route){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+route).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const item=document.querySelector(`.nav-item[data-route="${route}"]`);
+  if(item){item.classList.add('active');moveIndicator(item)}
+  location.hash=route;
+  // re-trigger animations
+  const page=document.getElementById('page-'+route);
+  page.style.animation='none';void page.offsetWidth;page.style.animation='';
+  if(route==='home')animateCounts();
+  if(route==='verify'&&currentStep===4)animateResults();
+}
+function moveIndicator(item){
+  const ind=item.querySelector('.nav-indicator');
+  if(!ind)return;
+  const items=[...document.querySelectorAll('.nav-item')];
+  const idx=items.indexOf(item);
+  let offset=0;
+  for(let i=0;i<idx;i++)offset+=items[i].offsetHeight+4;
+  ind.style.top=(item.offsetHeight/2+offset)+'px';
+}
+window.addEventListener('hashchange',()=>nav(location.hash.slice(1)||'home'));
+
+// ===== stepper (verify) =====
+let currentStep=0;
+function goStep(n){
+  currentStep=n;
+  document.querySelectorAll('.step').forEach((s,i)=>{
+    s.classList.toggle('active',i===n);
+    s.classList.toggle('done',i<n);
+  });
+  document.querySelectorAll('.step-line').forEach((l,i)=>{
+    l.classList.toggle('done',i<n);
+  });
+  document.querySelectorAll('[data-panel]').forEach((p,i)=>{
+    p.classList.toggle('hidden',i!==n);
+  });
+}
+
+// ===== upload UI (demo) =====
+function bindDrop(id,listId){
+  const inp=document.getElementById(id),list=document.getElementById(listId);
+  const zone=inp.parentElement;
+  inp.addEventListener('change',e=>renderFiles([...e.target.files],list));
+  ;['dragover','dragenter'].forEach(ev=>zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.add('over')}));
+  ;['dragleave','drop'].forEach(ev=>zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.remove('over')}));
+  zone.addEventListener('drop',e=>{e.preventDefault();renderFiles([...e.dataTransfer.files],list)});
+}
+function renderFiles(files,list){
+  list.innerHTML+=files.map((f,i)=>`
+    <div class="uploaded-item">
+      <div class="row-icon" style="width:24px;height:24px;font-size:10px">${(f.name.split('.').pop()||'').toUpperCase().slice(0,3)}</div>
+      <div class="name">${f.name}</div>
+      <div class="size">${(f.size/1024).toFixed(1)} KB</div>
+      <button onclick="this.parentElement.remove()">删除</button>
+    </div>`).join('');
+}
+bindDrop('raw-input','raw-list');bindDrop('plat-input','plat-list');
+
+// ===== verify (simulated) =====
+let progressTimer;
+function startVerify(){
+  goStep(4);
+  document.getElementById('v-progress').classList.remove('hidden');
+  document.getElementById('v-result').classList.add('hidden');
+  const ring=document.querySelector('#v-ring .fg');
+  const circumference=2*Math.PI*42;
+  let pct=0;
+  const msgs=['解析板检文件…','解析平台 CSV…','建立设备映射…','逐条核验字段…','生成报告…'];
+  progressTimer=setInterval(()=>{
+    pct=Math.min(100,pct+Math.random()*4+1);
+    ring.style.strokeDashoffset=circumference*(1-pct/100);
+    document.getElementById('v-pct').textContent=Math.round(pct);
+    document.getElementById('v-elapsed').textContent='已耗时 '+Math.round(pct*0.8)+' 秒';
+    if(pct>20&&pct<30)document.getElementById('v-msg').textContent=msgs[0];
+    if(pct>40&&pct<50)document.getElementById('v-msg').textContent=msgs[1];
+    if(pct>55&&pct<65)document.getElementById('v-msg').textContent=msgs[2];
+    if(pct>75&&pct<85)document.getElementById('v-msg').textContent=msgs[3];
+    if(pct>=98)document.getElementById('v-msg').textContent=msgs[4];
+    if(pct>=100){
+      clearInterval(progressTimer);
+      setTimeout(()=>{
+        document.getElementById('v-progress').classList.add('hidden');
+        document.getElementById('v-result').classList.remove('hidden');
+        animateResults();
+        toast('核验完成 · 138/142 一致','ok');
+      },400);
+    }
+  },80);
+}
+
+// ===== count-up animation =====
+function animateCounts(){
+  document.querySelectorAll('#page-home .stat-value span[data-count],#page-home .stat-value[data-count]').forEach(el=>{
+    const target=parseFloat(el.dataset.count);
+    const dur=900;const start=performance.now();
+    const tick=now=>{
+      const t=Math.min(1,(now-start)/dur);
+      const eased=1-Math.pow(1-t,3);
+      const v=target*eased;
+      el.textContent=(target%1? v.toFixed(1):Math.round(v));
+      if(t<1)requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+function animateResults(){
+  document.querySelectorAll('#v-result .n[data-count]').forEach(el=>{
+    const target=parseInt(el.dataset.count);
+    const dur=700;const start=performance.now();
+    const tick=now=>{
+      const t=Math.min(1,(now-start)/dur);
+      const eased=1-Math.pow(1-t,3);
+      el.textContent=Math.round(target*eased);
+      if(t<1)requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+// ===== toast =====
+function toast(msg,kind='ok'){
+  const el=document.createElement('div');
+  el.className='toast '+kind;
+  el.innerHTML=`<div class="dot"></div><div class="msg">${msg}</div>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>{el.style.transition='all .3s';el.style.opacity=0;el.style.transform='translateX(20px)';setTimeout(()=>el.remove(),300)},3000);
+}
+
+// ===== tabs =====
+function setTab(n,el){
+  el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('#page-settings [data-tab]').forEach((c,i)=>c.classList.toggle('hidden',i!==n));
+}
+
+// ===== init =====
+window.addEventListener('load',()=>{
+  nav(location.hash.slice(1)||'home');
+  animateCounts();
+});
+</script>
+</body>
+</html>
